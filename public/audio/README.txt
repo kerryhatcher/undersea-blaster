@@ -17,3 +17,5 @@ Expected filenames used by the app:
 - amb_bubbles_01.wav
 
 amb_bubbles_01.mp3: Underwater Ambience — DRAGON-STUDIO (Pixabay). License: Pixabay Content License. Source: https://pixabay.com/sound-effects/underwater-ambience-376890/
+
+missile_launch_01.ogg: Kenney Sci-Fi Sounds (thrusterFire_004.ogg). License: CC0 (Public Domain). Source: https://kenney.nl/assets/sci-fi-sounds
