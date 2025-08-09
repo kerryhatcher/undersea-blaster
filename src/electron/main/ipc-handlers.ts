@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow, app, screen, dialog, nativeImage } from 'electr
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { securityManager } from './security';
+import { databaseManager, SaveGame, HighScore, GameStats } from './database';
 
 /**
  * IPC Handlers for secure communication between main and renderer processes
@@ -13,6 +14,18 @@ export class IPCHandlers {
 
   constructor() {
     this.registerHandlers();
+    this.initializeDatabase();
+  }
+
+  /**
+   * Initialize the database
+   */
+  private async initializeDatabase(): Promise<void> {
+    try {
+      await databaseManager.initialize();
+    } catch (error) {
+      console.error('Failed to initialize database:', error);
+    }
   }
 
   setMainWindow(window: BrowserWindow): void {
@@ -105,7 +118,7 @@ export class IPCHandlers {
    * Game-related IPC handlers
    */
   private registerGameHandlers(): void {
-    // Save game state
+    // Save game state (quick save)
     ipcMain.handle('game:save-state', async (event, data) => {
       if (!this.validateEvent(event)) return { success: false, error: 'Invalid request' };
       
@@ -118,42 +131,61 @@ export class IPCHandlers {
           return { success: false, error: 'Invalid game data' };
         }
         
-        // Save to user data directory
-        const savePath = path.join(app.getPath('userData'), 'saves');
-        await fs.mkdir(savePath, { recursive: true });
+        // Save to quicksave slot
+        const success = databaseManager.saveGame('quicksave', {
+          score: sanitizedData.score,
+          level: sanitizedData.level,
+          playerHits: sanitizedData.playerHealth || 0,
+          playerMaxHits: sanitizedData.playerMaxHealth || 100,
+          bazookaActive: sanitizedData.bazookaActive || false,
+          shotgunActive: sanitizedData.shotgunActive || false,
+          laserActive: sanitizedData.laserActive || false,
+          nextUpgradeAt: sanitizedData.nextUpgradeAt || 0,
+          playTime: sanitizedData.playTime || 0
+        });
         
-        const fileName = `save_${Date.now()}.json`;
-        const filePath = path.join(savePath, fileName);
-        
-        await fs.writeFile(filePath, JSON.stringify(sanitizedData, null, 2));
-        
-        return { success: true, fileName };
+        if (success) {
+          return { success: true, slotName: 'quicksave' };
+        } else {
+          return { success: false, error: 'Failed to save to database' };
+        }
       } catch (error) {
         console.error('Save failed:', error);
         return { success: false, error: 'Save failed' };
       }
     });
 
-    // Load game state
+    // Load game state (quick load)
     ipcMain.handle('game:load-state', async (event) => {
       if (!this.validateEvent(event)) return null;
       
       try {
-        const savePath = path.join(app.getPath('userData'), 'saves');
+        // Load from quicksave slot first, or get most recent save
+        let saveData = databaseManager.loadGame('quicksave');
         
-        // Get most recent save
-        const files = await fs.readdir(savePath);
-        const saveFiles = files.filter(f => f.startsWith('save_') && f.endsWith('.json'));
+        if (!saveData) {
+          const allSaves = databaseManager.getAllSaves();
+          if (allSaves.length > 0) {
+            saveData = allSaves[0]; // Most recent save
+          }
+        }
         
-        if (saveFiles.length === 0) {
+        if (!saveData) {
           return null;
         }
         
-        saveFiles.sort((a, b) => b.localeCompare(a));
-        const latestSave = saveFiles[0];
-        
-        const data = await fs.readFile(path.join(savePath, latestSave), 'utf-8');
-        return JSON.parse(data);
+        // Convert to expected format
+        return {
+          score: saveData.score,
+          level: saveData.level,
+          playerHealth: saveData.playerHits,
+          playerMaxHealth: saveData.playerMaxHits,
+          bazookaActive: saveData.bazookaActive,
+          shotgunActive: saveData.shotgunActive,
+          laserActive: saveData.laserActive,
+          nextUpgradeAt: saveData.nextUpgradeAt,
+          playTime: saveData.playTime
+        };
       } catch (error) {
         console.error('Load failed:', error);
         return null;
@@ -165,26 +197,24 @@ export class IPCHandlers {
       if (!this.validateEvent(event)) return [];
       
       try {
-        const savePath = path.join(app.getPath('userData'), 'saves');
-        await fs.mkdir(savePath, { recursive: true });
+        const saves = databaseManager.getAllSaves();
         
-        const files = await fs.readdir(savePath);
-        const saveFiles = files.filter(f => f.startsWith('save_') && f.endsWith('.json'));
-        
-        const saves = await Promise.all(saveFiles.map(async (file) => {
-          const filePath = path.join(savePath, file);
-          const stats = await fs.stat(filePath);
-          const data = await fs.readFile(filePath, 'utf-8');
-          const gameData = JSON.parse(data);
-          
-          return {
-            id: file,
-            timestamp: stats.mtime,
-            data: gameData
-          };
+        return saves.map(save => ({
+          id: save.id,
+          slotName: save.slotName,
+          timestamp: save.timestamp,
+          data: {
+            score: save.score,
+            level: save.level,
+            playerHealth: save.playerHits,
+            playerMaxHealth: save.playerMaxHits,
+            bazookaActive: save.bazookaActive,
+            shotgunActive: save.shotgunActive,
+            laserActive: save.laserActive,
+            nextUpgradeAt: save.nextUpgradeAt,
+            playTime: save.playTime
+          }
         }));
-        
-        return saves.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       } catch (error) {
         console.error('Failed to get saves:', error);
         return [];
@@ -192,23 +222,97 @@ export class IPCHandlers {
     });
 
     // Delete save
-    ipcMain.handle('game:delete-save', async (event, saveId) => {
-      if (!this.validateEvent(event)) return { success: false };
+    ipcMain.handle('game:delete-save', async (event, slotName) => {
+      if (!this.validateEvent(event)) return { success: false, error: 'Invalid request' };
       
       try {
-        // Sanitize saveId to prevent path traversal
-        const sanitizedId = path.basename(saveId);
-        if (!sanitizedId.startsWith('save_') || !sanitizedId.endsWith('.json')) {
-          return { success: false, error: 'Invalid save ID' };
+        // Sanitize slot name
+        const sanitizedSlotName = securityManager.sanitizeInput(slotName);
+        if (!sanitizedSlotName || typeof sanitizedSlotName !== 'string') {
+          return { success: false, error: 'Invalid slot name' };
         }
         
-        const savePath = path.join(app.getPath('userData'), 'saves', sanitizedId);
-        await fs.unlink(savePath);
+        const success = databaseManager.deleteSave(sanitizedSlotName);
         
-        return { success: true };
+        if (success) {
+          return { success: true };
+        } else {
+          return { success: false, error: 'Save not found or delete failed' };
+        }
       } catch (error) {
         console.error('Delete failed:', error);
         return { success: false, error: 'Delete failed' };
+      }
+    });
+
+    // Save to specific slot
+    ipcMain.handle('game:save-to-slot', async (event, { slotName, data }) => {
+      if (!this.validateEvent(event)) return { success: false, error: 'Invalid request' };
+      
+      try {
+        // Sanitize inputs
+        const sanitizedSlotName = securityManager.sanitizeInput(slotName);
+        const sanitizedData = securityManager.sanitizeInput(data);
+        
+        if (!sanitizedSlotName || !this.isValidGameData(sanitizedData)) {
+          return { success: false, error: 'Invalid input data' };
+        }
+        
+        const success = databaseManager.saveGame(sanitizedSlotName, {
+          score: sanitizedData.score,
+          level: sanitizedData.level,
+          playerHits: sanitizedData.playerHealth || 0,
+          playerMaxHits: sanitizedData.playerMaxHealth || 100,
+          bazookaActive: sanitizedData.bazookaActive || false,
+          shotgunActive: sanitizedData.shotgunActive || false,
+          laserActive: sanitizedData.laserActive || false,
+          nextUpgradeAt: sanitizedData.nextUpgradeAt || 0,
+          playTime: sanitizedData.playTime || 0
+        });
+        
+        if (success) {
+          return { success: true, slotName: sanitizedSlotName };
+        } else {
+          return { success: false, error: 'Failed to save to database' };
+        }
+      } catch (error) {
+        console.error('Save to slot failed:', error);
+        return { success: false, error: 'Save failed' };
+      }
+    });
+
+    // Load from specific slot
+    ipcMain.handle('game:load-from-slot', async (event, slotName) => {
+      if (!this.validateEvent(event)) return null;
+      
+      try {
+        // Sanitize slot name
+        const sanitizedSlotName = securityManager.sanitizeInput(slotName);
+        if (!sanitizedSlotName || typeof sanitizedSlotName !== 'string') {
+          return null;
+        }
+        
+        const saveData = databaseManager.loadGame(sanitizedSlotName);
+        
+        if (!saveData) {
+          return null;
+        }
+        
+        // Convert to expected format
+        return {
+          score: saveData.score,
+          level: saveData.level,
+          playerHealth: saveData.playerHits,
+          playerMaxHealth: saveData.playerMaxHits,
+          bazookaActive: saveData.bazookaActive,
+          shotgunActive: saveData.shotgunActive,
+          laserActive: saveData.laserActive,
+          nextUpgradeAt: saveData.nextUpgradeAt,
+          playTime: saveData.playTime
+        };
+      } catch (error) {
+        console.error('Load from slot failed:', error);
+        return null;
       }
     });
 
@@ -236,22 +340,83 @@ export class IPCHandlers {
       }
     });
 
-    // High scores
+    // Add high score
+    ipcMain.handle('highscore:add', async (event, { playerName, score, level, playTime }) => {
+      if (!this.validateEvent(event)) return { success: false, error: 'Invalid request' };
+      
+      try {
+        // Sanitize inputs
+        const sanitizedName = securityManager.sanitizeInput(playerName);
+        const sanitizedScore = parseInt(score, 10);
+        const sanitizedLevel = parseInt(level, 10);
+        const sanitizedPlayTime = parseInt(playTime, 10) || 0;
+        
+        if (!sanitizedName || isNaN(sanitizedScore) || isNaN(sanitizedLevel)) {
+          return { success: false, error: 'Invalid data' };
+        }
+        
+        const success = databaseManager.addHighScore({
+          playerName: sanitizedName,
+          score: sanitizedScore,
+          level: sanitizedLevel,
+          playTime: sanitizedPlayTime,
+          timestamp: Date.now()
+        });
+        
+        if (success) {
+          return { success: true };
+        } else {
+          return { success: false, error: 'Failed to save high score' };
+        }
+      } catch (error) {
+        console.error('Failed to add high score:', error);
+        return { success: false, error: 'Save failed' };
+      }
+    });
+
+    // Get high scores
+    ipcMain.handle('highscore:get', async (event, limit = 10) => {
+      if (!this.validateEvent(event)) return [];
+      
+      try {
+        const sanitizedLimit = parseInt(limit, 10) || 10;
+        const scores = databaseManager.getHighScores(Math.min(sanitizedLimit, 100)); // Cap at 100
+        
+        return scores.map(score => ({
+          id: score.id,
+          name: score.playerName,
+          score: score.score,
+          level: score.level,
+          playTime: score.playTime,
+          timestamp: score.timestamp
+        }));
+      } catch (error) {
+        console.error('Failed to get high scores:', error);
+        return [];
+      }
+    });
+
+    // Legacy high score handlers (for backwards compatibility)
     ipcMain.handle('game:get-high-scores', async (event) => {
       if (!this.validateEvent(event)) return [];
       
       try {
-        const scoresPath = path.join(app.getPath('userData'), 'highscores.json');
-        const data = await fs.readFile(scoresPath, 'utf-8');
-        return JSON.parse(data);
+        const scores = databaseManager.getHighScores(10);
+        
+        // Convert to legacy format
+        return scores.map(score => ({
+          name: score.playerName,
+          score: score.score,
+          timestamp: score.timestamp
+        }));
       } catch (error) {
-        // Return empty array if file doesn't exist
+        console.error('Failed to get high scores:', error);
         return [];
       }
     });
 
     ipcMain.handle('game:save-high-score', async (event, { score, name }) => {
-      if (!this.validateEvent(event)) return { success: false };
+      if (!this.validateEvent(event)) return { success: false, error: 'Invalid request' };
       
       try {
         // Sanitize inputs
@@ -262,29 +427,19 @@ export class IPCHandlers {
           return { success: false, error: 'Invalid data' };
         }
         
-        const scoresPath = path.join(app.getPath('userData'), 'highscores.json');
-        
-        let scores = [];
-        try {
-          const data = await fs.readFile(scoresPath, 'utf-8');
-          scores = JSON.parse(data);
-        } catch {
-          // File doesn't exist yet
-        }
-        
-        scores.push({
-          name: sanitizedName.slice(0, 50), // Limit name length
+        const success = databaseManager.addHighScore({
+          playerName: sanitizedName,
           score: sanitizedScore,
+          level: 1, // Default level for legacy saves
+          playTime: 0, // Default play time
           timestamp: Date.now()
         });
         
-        // Keep top 10 scores
-        scores.sort((a: any, b: any) => b.score - a.score);
-        scores = scores.slice(0, 10);
-        
-        await fs.writeFile(scoresPath, JSON.stringify(scores, null, 2));
-        
-        return { success: true };
+        if (success) {
+          return { success: true };
+        } else {
+          return { success: false, error: 'Failed to save high score' };
+        }
       } catch (error) {
         console.error('Failed to save high score:', error);
         return { success: false, error: 'Save failed' };
@@ -296,46 +451,46 @@ export class IPCHandlers {
    * Settings-related IPC handlers
    */
   private registerSettingsHandlers(): void {
-    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
-    
     // Get setting
     ipcMain.handle('settings:get', async (event, key) => {
       if (!this.validateEvent(event)) return null;
       
       try {
-        const data = await fs.readFile(settingsPath, 'utf-8');
-        const settings = JSON.parse(data);
-        return settings[key];
-      } catch {
+        const sanitizedKey = securityManager.sanitizeInput(key);
+        if (!sanitizedKey || typeof sanitizedKey !== 'string') {
+          return null;
+        }
+        
+        return databaseManager.getSetting(sanitizedKey);
+      } catch (error) {
+        console.error('Failed to get setting:', error);
         return null;
       }
     });
 
     // Set setting
     ipcMain.handle('settings:set', async (event, key, value) => {
-      if (!this.validateEvent(event)) return { success: false };
+      if (!this.validateEvent(event)) return { success: false, error: 'Invalid request' };
       
       try {
-        let settings = {};
-        try {
-          const data = await fs.readFile(settingsPath, 'utf-8');
-          settings = JSON.parse(data);
-        } catch {
-          // File doesn't exist yet
-        }
-        
         // Sanitize inputs
         const sanitizedKey = securityManager.sanitizeInput(key);
         const sanitizedValue = securityManager.sanitizeInput(value);
         
-        (settings as any)[sanitizedKey] = sanitizedValue;
+        if (!sanitizedKey || typeof sanitizedKey !== 'string') {
+          return { success: false, error: 'Invalid key' };
+        }
         
-        await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2));
+        const success = databaseManager.setSetting(sanitizedKey, String(sanitizedValue));
         
-        return { success: true };
+        if (success) {
+          return { success: true };
+        } else {
+          return { success: false, error: 'Failed to save setting' };
+        }
       } catch (error) {
-        console.error('Failed to save setting:', error);
-        return { success: false };
+        console.error('Failed to set setting:', error);
+        return { success: false, error: 'Save failed' };
       }
     });
 
@@ -344,22 +499,46 @@ export class IPCHandlers {
       if (!this.validateEvent(event)) return {};
       
       try {
-        const data = await fs.readFile(settingsPath, 'utf-8');
-        return JSON.parse(data);
-      } catch {
+        return databaseManager.getAllSettings();
+      } catch (error) {
+        console.error('Failed to get all settings:', error);
         return {};
       }
     });
 
-    // Reset settings
-    ipcMain.handle('settings:reset', async (event) => {
-      if (!this.validateEvent(event)) return { success: false };
+    // Game statistics handlers
+    ipcMain.handle('stats:update', async (event, updates) => {
+      if (!this.validateEvent(event)) return { success: false, error: 'Invalid request' };
       
       try {
-        await fs.unlink(settingsPath);
-        return { success: true };
-      } catch {
-        return { success: true }; // Consider it success if file doesn't exist
+        // Sanitize updates object
+        const sanitizedUpdates = securityManager.sanitizeInput(updates);
+        
+        if (!sanitizedUpdates || typeof sanitizedUpdates !== 'object') {
+          return { success: false, error: 'Invalid update data' };
+        }
+        
+        const success = databaseManager.updateGameStats(sanitizedUpdates);
+        
+        if (success) {
+          return { success: true };
+        } else {
+          return { success: false, error: 'Failed to update statistics' };
+        }
+      } catch (error) {
+        console.error('Failed to update stats:', error);
+        return { success: false, error: 'Update failed' };
+      }
+    });
+
+    ipcMain.handle('stats:get', async (event) => {
+      if (!this.validateEvent(event)) return null;
+      
+      try {
+        return databaseManager.getGameStats();
+      } catch (error) {
+        console.error('Failed to get stats:', error);
+        return null;
       }
     });
   }
@@ -385,16 +564,27 @@ export class IPCHandlers {
     // Basic validation - expand based on actual game data structure
     if (!data || typeof data !== 'object') return false;
     
-    // Check for expected properties
-    const expectedProps = ['score', 'level', 'playerHealth'];
-    for (const prop of expectedProps) {
+    // Check for expected properties (using both old and new property names for compatibility)
+    const requiredProps = ['score', 'level'];
+    for (const prop of requiredProps) {
       if (!(prop in data)) return false;
     }
+    
+    // Check for health property (support both playerHealth and playerMaxHealth)
+    const hasHealth = 'playerHealth' in data || 'playerMaxHealth' in data;
+    if (!hasHealth) return false;
     
     // Validate data types
     if (typeof data.score !== 'number' || data.score < 0) return false;
     if (typeof data.level !== 'number' || data.level < 1) return false;
-    if (typeof data.playerHealth !== 'number' || data.playerHealth < 0) return false;
+    
+    if ('playerHealth' in data && (typeof data.playerHealth !== 'number' || data.playerHealth < 0)) {
+      return false;
+    }
+    
+    if ('playerMaxHealth' in data && (typeof data.playerMaxHealth !== 'number' || data.playerMaxHealth < 0)) {
+      return false;
+    }
     
     return true;
   }

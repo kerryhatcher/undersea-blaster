@@ -1,0 +1,167 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.underseablaster.desktop",
+  "productName": "Undersea Blaster",
+  "copyright": "Copyright © 2025 Undersea Blaster",
+  "asar": true,
+  "asarUnpack": [
+    "node_modules/better-sqlite3/**/*"
+  ],
+  "directories": {
+    "output": "dist",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "src/electron/**/*",
+    "package.json",
+    "!**/*.ts",
+    "!**/*.map",
+    "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,readme}",
+    "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+    "!**/node_modules/*.d.ts",
+    "!**/node_modules/.bin"
+  ],
+  "extraResources": [
+    {
+      "from": "assets",
+      "to": "assets"
+    }
+  ],
+  "protocols": {
+    "name": "undersea-blaster-protocol",
+    "schemes": ["underseablaster"]
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "your-github-username",
+    "repo": "undersea-blaster",
+    "releaseType": "release"
+  },
+  "mac": {
+    "category": "public.app-category.games",
+    "icon": "build/icon.icns",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.plist",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "darkModeSupport": true,
+    "minimumSystemVersion": "10.14"
+  },
+  "dmg": {
+    "title": "Undersea Blaster",
+    "icon": "build/icon.icns",
+    "background": "build/background.png",
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ],
+    "window": {
+      "width": 540,
+      "height": 380
+    }
+  },
+  "win": {
+    "icon": "build/icon.ico",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "publisherName": "Undersea Blaster",
+    "verifyUpdateCodeSignature": true,
+    "requestedExecutionLevel": "asInvoker",
+    "certificateSubjectName": "Undersea Blaster"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "allowElevation": true,
+    "installerIcon": "build/icon.ico",
+    "uninstallerIcon": "build/icon.ico",
+    "installerHeaderIcon": "build/icon.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Undersea Blaster",
+    "license": "LICENSE",
+    "artifactName": "${productName}-Setup-${version}.${ext}"
+  },
+  "portable": {
+    "artifactName": "${productName}-Portable-${version}.${ext}"
+  },
+  "linux": {
+    "icon": "build/icons",
+    "category": "Game",
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": ["x64"]
+      },
+      {
+        "target": "deb",
+        "arch": ["x64"]
+      },
+      {
+        "target": "rpm",
+        "arch": ["x64"]
+      },
+      {
+        "target": "snap",
+        "arch": ["x64"]
+      }
+    ],
+    "maintainer": "Undersea Blaster Team",
+    "vendor": "Undersea Blaster",
+    "synopsis": "An underwater arcade game",
+    "description": "Battle enemies in the depths of the ocean in this exciting arcade game.",
+    "desktop": {
+      "StartupNotify": "true",
+      "Encoding": "UTF-8",
+      "MimeType": "x-scheme-handler/underseablaster",
+      "Categories": "Game;ArcadeGame;"
+    }
+  },
+  "appImage": {
+    "artifactName": "${productName}-${version}.${ext}",
+    "systemIntegration": "ask"
+  },
+  "deb": {
+    "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libsecret-1-0"],
+    "artifactName": "${productName}_${version}_${arch}.${ext}"
+  },
+  "rpm": {
+    "artifactName": "${productName}-${version}.${arch}.${ext}"
+  },
+  "snap": {
+    "grade": "stable",
+    "summary": "Undersea Blaster - Arcade Game"
+  },
+  "afterSign": "scripts/notarize.js",
+  "afterAllArtifactBuild": "scripts/after-build.js",
+  "buildVersion": "1.0.0",
+  "electronVersion": "28.0.0"
+}

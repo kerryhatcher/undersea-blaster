@@ -19,19 +19,33 @@
     "e2e:ui": "playwright test --ui",
     "e2e:headed": "playwright test --headed",
     "e2e:install": "playwright install --with-deps",
+    "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
+    "build:win": "npm run build:all && electron-builder --win",
+    "build:mac": "npm run build:all && electron-builder --mac",
+    "build:linux": "npm run build:all && electron-builder --linux",
+    "dist": "./scripts/build-all.sh",
+    "dist:all": "./scripts/build-all.sh --all",
+    "release": "./scripts/release.sh",
+    "test:builds": "./scripts/test-builds.sh",
     "package:linux": "npm run build:all && electron-builder --linux",
     "package:win": "npm run build:all && electron-builder --win",
     "package:mac": "npm run build:all && electron-builder --mac"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.2",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.2.1",
     "electron": "^37.2.6",
     "electron-builder": "^26.0.12",
+    "electron-rebuild": "^3.2.9",
     "jsdom": "^26.1.0",
     "typescript": "^5.5.4",
     "vite": "^5.3.4",
     "vite-plugin-pwa": "^1.0.2",
     "vitest": "^2.0.5"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "electron-updater": "^6.1.7"
   }
 }
