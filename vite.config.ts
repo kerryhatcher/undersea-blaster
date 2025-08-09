@@ -30,6 +30,7 @@ function remoteConsolePlugin(): Plugin {
 }
 
 export default defineConfig({
+  base: process.env.GITHUB_PAGES ? '/undersea-blaster/' : '/',
   plugins: [remoteConsolePlugin()],
   test: {
     environment: 'jsdom',
