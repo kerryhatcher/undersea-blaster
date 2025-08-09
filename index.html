@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Undersea Blaster</title>
+    <style>
+      html, body { height: 100%; margin: 0; background: #062b4f; }
+      #game { display:block; width:100vw; height:100vh; touch-action:none; outline: none; }
+      .hint { position: fixed; left: 50%; transform: translateX(-50%); bottom: 6px; color: #9ecbff; font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; opacity:.85; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game" tabindex="0" role="application" aria-label="Undersea Blaster game canvas"></canvas>
+    <div class="hint">Click/tap the game to focus. Use ◀/▶ (or A/D) to move, Space/Enter to shoot. Mobile: on-screen pads.</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
