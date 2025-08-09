@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Undersea Blaster" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -11,8 +12,8 @@
     <style>
       html, body { height: 100%; margin: 0; background: #062b4f; }
       /* Use dynamic viewport units for iOS Safari */
-      #game { display:block; width:100dvw; height:100dvh; touch-action:none; outline: none; }
-      .hint { position: fixed; left: 50%; transform: translateX(-50%); bottom: 6px; color: #9ecbff; font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; opacity:.85; }
+      #game { display:block; width:100dvw; height:100dvh; height:100svh; height:100vh; touch-action:none; outline: none; }
+      .hint { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(6px + env(safe-area-inset-bottom)); color: #9ecbff; font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; opacity:.85; pointer-events: none; }
       #pause-link { position: fixed; left: 50%; transform: translateX(-50%); bottom: 28%; color: #bfe0ff; font: 16px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5)); display: none; z-index: 10; }
     </style>
   </head>

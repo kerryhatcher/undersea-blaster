@@ -3,6 +3,7 @@ import { getSpawnIntervalMs, getSpeedScale, shouldLevelUp, applyLevelUp } from '
 import { circlesOverlap, approximatePlayerRadius } from './game/systems/collision';
 import { nextUpgradeScore, shouldSpawnUpgrade, getExplosionHitIndices, processUpgradePickups } from './game/systems/upgrades';
 import { shouldPlayAlternate } from './game/systems/audio';
+import { computePads, shouldStartDrag } from './game/systems/input';
 import { shouldRicochet, randomRicochetVelocity } from './game/systems/laser';
 import { installClientLogger } from './dev/client-logger';
 import { installAudioActivation, playGunshot, playMissile, playExplosion, startAmbience, stopAmbience, playImpact } from './game/audio';
@@ -699,18 +700,20 @@ function draw(nowMs: number){
   }
 
   // on-screen pads
-  const padR = Math.min(56, Math.min(w, h) * 0.065);
-  const leftCx = 24 + padR, leftCy = h - (24 + padR);
-  const rightCx = leftCx + (padR * 2.6), rightCy = leftCy;
-  const fireR = padR * 1.6; const fireCx = w - (24 + fireR), fireCy = h - (24 + fireR);
+  const sa = getSafeAreaInsets();
+  // Nudge right pad left if centerline is near hint text area to avoid overlap
+  const pads = computePads(w, h, sa.bottom);
+  if (pads.rightCx + pads.padR > (w - 120)) {
+    pads.rightCx = Math.max(pads.rightCx - 40, pads.padR + 12);
+  }
   ctx.globalAlpha = 0.25;
-  drawCircle(leftCx,leftCy,padR, controls.left);
-  drawTriangle(leftCx,leftCy,padR*0.5, 'left');
-  drawCircle(rightCx,rightCy,padR, controls.right);
-  drawTriangle(rightCx,rightCy,padR*0.5, 'right');
-  drawCircle(fireCx, fireCy, fireR, controls.fire, '#ff3b30');
+  drawCircle(pads.leftCx,pads.leftCy,pads.padR, controls.left);
+  drawTriangle(pads.leftCx,pads.leftCy,pads.padR*0.5, 'left');
+  drawCircle(pads.rightCx,pads.rightCy,pads.padR, controls.right);
+  drawTriangle(pads.rightCx,pads.rightCy,pads.padR*0.5, 'right');
+  drawCircle(pads.fireCx, pads.fireCy, pads.fireR, controls.fire, '#ff3b30');
   ctx.globalAlpha = 0.7;
-  ctx.beginPath(); ctx.arc(fireCx, fireCy, fireR*0.45, 0, Math.PI*2); ctx.fillStyle='#ffffff'; ctx.fill();
+  ctx.beginPath(); ctx.arc(pads.fireCx, pads.fireCy, pads.fireR*0.45, 0, Math.PI*2); ctx.fillStyle='#ffffff'; ctx.fill();
   ctx.globalAlpha = 1;
 
   function drawCircle(x:number,y:number,r:number,active:boolean,color='#000'){
@@ -742,19 +745,36 @@ function draw(nowMs: number){
 
 function addPointerListeners(el: HTMLElement){
   let mouseHeld = false;
+  let dragging = false;
+  let dragOffsetX = 0;
   const clearControls = () => { controls.left = controls.right = controls.fire = false; };
   function onDown(e: any){
     if (state.gameOver) { hardReset(state); return; }
     if (state.paused) { state.paused = false; }
     mouseHeld = true;
     const list = e.touches || e.changedTouches || [e];
-    for (const t of list){ inputAt(t.clientX, t.clientY, true); }
+    // Shooting anywhere near the player starts firing and drag control
+    controls.fire = true;
+    const t = list[0];
+    const px = t.clientX, py = t.clientY;
+    if (shouldStartDrag(py, state.player.y)) {
+      dragging = true;
+      dragOffsetX = state.player.x - px;
+    } else {
+      // fallback to virtual pads classification
+      inputAt(px, py, true);
+    }
     e.preventDefault();
   }
   function onMove(e: any){
     const list = e.touches || e.changedTouches;
     if (list) {
-      for (const t of list){ inputAt(t.clientX, t.clientY, true); }
+      const t = list[0];
+      if (dragging) {
+        state.player.x = t.clientX + dragOffsetX;
+      } else if (mouseHeld) {
+        inputAt(t.clientX, t.clientY, true);
+      }
     } else if (mouseHeld) {
       inputAt((e as MouseEvent).clientX, (e as MouseEvent).clientY, true);
     }
@@ -762,6 +782,7 @@ function addPointerListeners(el: HTMLElement){
   }
   function onUp(e: any){
     mouseHeld = false;
+    dragging = false;
     clearControls();
     e.preventDefault();
   }
@@ -779,17 +800,32 @@ function addPointerListeners(el: HTMLElement){
 function inputAt(clientX: number, clientY: number, isDown: boolean){
   const x = clientX; const y = clientY;
   const w = state.w(); const h = state.h();
-  const padR = Math.min(56, Math.min(w, h) * 0.065);
-  const leftCx = 24 + padR, leftCy = h - (24 + padR);
-  const rightCx = leftCx + (padR * 2.6), rightCy = leftCy;
-  const fireR = padR * 1.6; const fireCx = w - (24 + fireR), fireCy = h - (24 + fireR);
-  if (hitCircle(x,y,leftCx,leftCy,padR)) { controls.left = isDown; return; }
-  if (hitCircle(x,y,rightCx,rightCy,padR)) { controls.right = isDown; return; }
-  if (hitCircle(x,y,fireCx,fireCy,fireR)) { controls.fire = isDown; return; }
+  const sa = getSafeAreaInsets();
+  const pads = computePads(w, h, sa.bottom);
+  if (hitCircle(x,y,pads.leftCx,pads.leftCy,pads.padR)) { controls.left = isDown; return; }
+  if (hitCircle(x,y,pads.rightCx,pads.rightCy,pads.padR)) { controls.right = isDown; return; }
+  if (hitCircle(x,y,pads.fireCx,pads.fireCy,pads.fireR)) { controls.fire = isDown; return; }
 }
 
 function hitCircle(px: number, py: number, cx: number, cy: number, r: number){
   const dx = px - cx, dy = py - cy; return (dx*dx + dy*dy) <= r*r;
+}
+
+function getSafeAreaInsets(){
+  // Read CSS env(safe-area-inset-*) via a temp element
+  const div = document.createElement('div');
+  div.style.cssText = 'position:fixed;left:0;bottom:0;z-index:-1;visibility:hidden;padding-bottom:env(safe-area-inset-bottom);padding-top:env(safe-area-inset-top);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)';
+  document.body.appendChild(div);
+  const styles = getComputedStyle(div);
+  const parse = (v: string) => parseFloat(v) || 0;
+  const insets = {
+    top: parse(styles.paddingTop),
+    right: parse(styles.paddingRight),
+    bottom: parse(styles.paddingBottom),
+    left: parse(styles.paddingLeft),
+  };
+  div.remove();
+  return insets;
 }
 
 function spawnPatty(state: GameState, speedScale: number){
