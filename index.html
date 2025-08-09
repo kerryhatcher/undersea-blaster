@@ -15,6 +15,13 @@
     <canvas id="game" tabindex="0" role="application" aria-label="Undersea Blaster game canvas"></canvas>
     <div class="hint">Click/tap the game to focus. Use ◀/▶ (or A/D) to move, Space/Enter to shoot. Mobile: on-screen pads. — <a href="https://www.kerryhatcher.com" target="_blank" rel="noopener noreferrer" style="color:#bfe0ff">kerryhatcher.com</a></div>
     <a id="pause-link" href="https://www.kerryhatcher.com" target="_blank" rel="noopener noreferrer" aria-label="Kerry Hatcher website">by Kerry Hatcher — kerryhatcher.com</a>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module">
+      // Use desktop-enhanced version if running in Electron
+      if (typeof window !== 'undefined' && window.electronAPI) {
+        import('/src/main-desktop.ts');
+      } else {
+        import('/src/main.ts');
+      }
+    </script>
   </body>
 </html>

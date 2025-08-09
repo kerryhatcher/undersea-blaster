@@ -11,9 +11,10 @@ find dist-electron -name "*.js" -type f | while read file; do
     # Move the file
     mv "$file" "$newfile"
     
-    # Update require statements in the file to use .cjs extension
-    sed -i 's/require("\.\//require(".\//g' "$newfile" 2>/dev/null || true
-    sed -i 's/require("\([^"]*\)")/require("\1.cjs")/g' "$newfile" 2>/dev/null || true
+    # Update require statements in the file to use .cjs extension for relative imports only
+    # Only update relative imports (starting with ./ or ../)
+    sed -i 's/require("\(\.\.\?\/[^"]*\)")/require("\1.cjs")/g' "$newfile" 2>/dev/null || true
+    # Remove duplicate .cjs extensions if any
     sed -i 's/\.cjs\.cjs/\.cjs/g' "$newfile" 2>/dev/null || true
 done
 

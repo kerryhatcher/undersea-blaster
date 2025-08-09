@@ -36,7 +36,13 @@ const electronAPI = {
             'fullscreen-changed',
             'focus-changed',
             'update-available',
-            'update-downloaded'
+            'update-downloaded',
+            'menu-new-game',
+            'menu-toggle-pause',
+            'menu-save-game',
+            'menu-load-game',
+            'menu-high-scores',
+            'save-before-quit'
         ];
         if (validChannels.includes(channel)) {
             // Wrap the callback to remove the event parameter
