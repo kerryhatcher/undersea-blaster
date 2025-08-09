@@ -4,6 +4,7 @@ import { circlesOverlap, approximatePlayerRadius } from './game/systems/collisio
 import { nextUpgradeScore, shouldSpawnUpgrade, getExplosionHitIndices, processUpgradePickups } from './game/systems/upgrades';
 import { shouldPlayAlternate } from './game/systems/audio';
 import { computePads, shouldStartDrag } from './game/systems/input';
+import { computeHintBottomOffset } from './game/systems/layout';
 import { shouldRicochet, randomRicochetVelocity } from './game/systems/laser';
 import { installClientLogger } from './dev/client-logger';
 import { installAudioActivation, playGunshot, playMissile, playExplosion, startAmbience, stopAmbience, playImpact } from './game/audio';
@@ -390,8 +391,16 @@ function update(dt: number, nowMs: number){
 
 function draw(nowMs: number){
   const w = state.w(), h = state.h();
-  // Toggle external pause link visibility
-  if (pauseLinkEl) pauseLinkEl.style.display = (state.paused && !state.gameOver) ? 'block' : 'none';
+  // Toggle external pause link visibility and position above pads
+  if (pauseLinkEl) {
+    pauseLinkEl.style.display = (state.paused && !state.gameOver) ? 'block' : 'none';
+    if (state.paused && !state.gameOver) {
+      const sa = getSafeAreaInsets();
+      const pads = computePads(w, h, sa.bottom);
+      const bottomPx = computeHintBottomOffset(pads, sa.bottom);
+      (pauseLinkEl as HTMLElement).style.bottom = `${bottomPx}px`;
+    }
+  }
   // bg
   const g = ctx.createLinearGradient(0,0,0,h);
   g.addColorStop(0,'#0e6ab0');

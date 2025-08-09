@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computePads, classifyPointer, shouldStartDrag } from '../src/game/systems/input';
+import { computeHintBottomOffset } from '../src/game/systems/layout';
 
 describe('mobile pads and pointer classification', () => {
   it('computes pad positions within viewport', () => {
@@ -34,6 +35,14 @@ describe('mobile pads and pointer classification', () => {
     // Simulate nudge condition
     const nudgedRightCx = wouldOverlap ? Math.max(p.rightCx - 40, p.padR + 12) : p.rightCx;
     expect(nudgedRightCx + p.padR).toBeLessThanOrEqual(w);
+  });
+
+  it('computes hint bottom offset above pads + safe area', () => {
+    const w = 428, h = 926; // iPhone 14 Pro Max portrait logical size
+    const pads = computePads(w, h, 20);
+    const offset = computeHintBottomOffset(pads, 20);
+    expect(offset).toBeGreaterThan(20);
+    expect(offset).toBeGreaterThan(pads.padR);
   });
 
   it('starts drag when touching near or below player Y', () => {
