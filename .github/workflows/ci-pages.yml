@@ -51,9 +51,10 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
-      - name: Build (Vite)
+      - name: Build (Vite) with custom base
         env:
-          GITHUB_PAGES: 'true'
+          # Set the base path to the custom domain path. If using a root custom domain, set to '/'
+          BASE_PATH: '/'
         run: npm run build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

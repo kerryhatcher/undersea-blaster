@@ -29,8 +29,10 @@ function remoteConsolePlugin(): Plugin {
   };
 }
 
+const computedBase = process.env.BASE_PATH ?? (process.env.GITHUB_PAGES ? '/undersea-blaster/' : '/');
+
 export default defineConfig({
-  base: process.env.GITHUB_PAGES ? '/undersea-blaster/' : '/',
+  base: computedBase,
   plugins: [remoteConsolePlugin()],
   test: {
     environment: 'jsdom',
