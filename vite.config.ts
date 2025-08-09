@@ -1,5 +1,7 @@
 import { defineConfig, Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+// @ts-ignore - Vite supports JSON imports
+import pkg from './package.json';
 
 function remoteConsolePlugin(): Plugin {
   return {
@@ -31,6 +33,7 @@ function remoteConsolePlugin(): Plugin {
 }
 
 const computedBase = process.env.BASE_PATH ?? (process.env.GITHUB_PAGES ? '/undersea-blaster/' : '/');
+const computedVersion = process.env.VERSION_STRING || pkg.version || '0.0.0-dev';
 
 export default defineConfig({
   base: computedBase,
@@ -44,6 +47,9 @@ export default defineConfig({
       manifest: false
     })
   ],
+  define: {
+    __APP_VERSION__: JSON.stringify(computedVersion),
+  },
   test: {
     environment: 'jsdom',
     reporters: 'default',

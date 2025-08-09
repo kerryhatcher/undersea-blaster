@@ -6,36 +6,13 @@ let lastExplosionAt = 0;
 type SampleKey = 'gun_basic' | 'shotgun' | 'missile_launch' | 'explosion_big' | 'explosion_small' | 'amb_bubbles';
 const sampleBuffers: Partial<Record<SampleKey, AudioBuffer[]>> = {};
 const defaultManifest: Record<SampleKey, string[]> = {
-  gun_basic: [
-    '/audio/gun_basic_01.ogg',
-    '/audio/gun_basic_01.mp3',
-    '/audio/gun_basic_01.wav',
-  ],
-  shotgun: [
-    '/audio/shotgun_01.ogg',
-    '/audio/shotgun_01.mp3',
-    '/audio/shotgun_01.wav',
-  ],
-  missile_launch: [
-    '/audio/missile_launch_01.ogg',
-    '/audio/missile_launch_01.mp3',
-    '/audio/missile_launch_01.wav',
-  ],
-  explosion_big: [
-    '/audio/explosion_big_01.ogg',
-    '/audio/explosion_big_01.mp3',
-    '/audio/explosion_big_01.wav',
-  ],
-  explosion_small: [
-    '/audio/explosion_small_01.ogg',
-    '/audio/explosion_small_01.mp3',
-    '/audio/explosion_small_01.wav',
-  ],
-  amb_bubbles: [
-    '/audio/amb_bubbles_01.ogg',
-    '/audio/amb_bubbles_01.mp3',
-    '/audio/amb_bubbles_01.wav',
-  ],
+  // Only list formats we actually ship to avoid noisy 404s in production logs
+  gun_basic: [ '/audio/gun_basic_01.ogg' ],
+  shotgun: [ '/audio/shotgun_01.ogg' ],
+  missile_launch: [ '/audio/missile_launch_01.ogg' ],
+  explosion_big: [ '/audio/explosion_big_01.ogg' ],
+  explosion_small: [ '/audio/explosion_small_01.ogg' ],
+  amb_bubbles: [ '/audio/amb_bubbles_01.mp3' ],
 };
 
 function getCtx(): AudioContext | null {
