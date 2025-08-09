@@ -725,6 +725,22 @@ function draw(nowMs: number){
   ctx.beginPath(); ctx.arc(pads.fireCx, pads.fireCy, pads.fireR*0.45, 0, Math.PI*2); ctx.fillStyle='#ffffff'; ctx.fill();
   ctx.globalAlpha = 1;
 
+  // version string at bottom center
+  ctx.save();
+  ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto';
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.textAlign = 'center';
+  {
+    const saVer = getSafeAreaInsets();
+    const yVer = h - (6 + saVer.bottom);
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - injected at build time via define
+    const ver = (typeof __APP_VERSION__ !== 'undefined') ? __APP_VERSION__ : 'dev';
+    ctx.fillText(`v${ver}`, w/2, yVer);
+  }
+  ctx.textAlign = 'start';
+  ctx.restore();
+
   function drawCircle(x:number,y:number,r:number,active:boolean,color='#000'){
     ctx.save();
     ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
