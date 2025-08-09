@@ -2,12 +2,20 @@ import { createInitialState, hardReset, resetPlayer, GameState } from './game/st
 import { getSpawnIntervalMs, getSpeedScale, shouldLevelUp, applyLevelUp } from './game/systems/difficulty';
 import { circlesOverlap, approximatePlayerRadius } from './game/systems/collision';
 import { nextUpgradeScore, shouldSpawnUpgrade, getExplosionHitIndices, processUpgradePickups } from './game/systems/upgrades';
+import { shouldPlayAlternate } from './game/systems/audio';
+import { shouldRicochet, randomRicochetVelocity } from './game/systems/laser';
 import { installClientLogger } from './dev/client-logger';
-import { installAudioActivation, playGunshot, playMissile, playExplosion, startAmbience, stopAmbience } from './game/audio';
+import { installAudioActivation, playGunshot, playMissile, playExplosion, startAmbience, stopAmbience, playImpact } from './game/audio';
+import { computeUpgradeHud } from './game/hud';
 
 installClientLogger();
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
+// Prevent iOS Safari page scroll on touch when interacting with canvas
+document.addEventListener('gesturestart', (e)=> e.preventDefault());
+document.addEventListener('touchmove', (e)=> {
+  if (e.target === canvas) e.preventDefault();
+}, { passive: false });
 const ctx = canvas.getContext('2d')!;
 const pauseLinkEl = document.getElementById('pause-link') as HTMLAnchorElement | null;
 
@@ -114,6 +122,13 @@ function loop(now: number){
 }
 requestAnimationFrame(loop);
 
+// Register service worker for PWA install
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+
 function update(dt: number, nowMs: number){
   const w = state.w(), h = state.h();
   const p = state.player;
@@ -137,8 +152,10 @@ function update(dt: number, nowMs: number){
     if (controls.fire && state._cooldown <= 0){
       if (state.bazookaActive) {
         state._cooldown = 0.4; // fire slower
-        state.bullets.push({ x:p.x, y:p.y-24, vy:-260, vx: 0, r:6, kind: 'missile', trail: [] });
-        playMissile();
+          state.bullets.push({ x:p.x, y:p.y-24, vy:-260, vx: 0, r:6, kind: 'missile', trail: [] });
+          const alt = shouldPlayAlternate(state.missileSoundIndex);
+          state.missileSoundIndex = alt.nextIndex;
+          if (alt.play) playMissile();
       } else if (state.shotgunActive) {
         state._cooldown = 0.36; // slightly slower
         const speed = -460; // faster bullets
@@ -152,6 +169,15 @@ function update(dt: number, nowMs: number){
           state.bullets.push({ x:p.x, y:p.y-24, vy, vx, r:5, kind: 'bubble' });
         }
         playGunshot();
+      } else if (state.laserActive) {
+        state._cooldown = 0.06; // slightly faster rate
+        const speed = -1200; // extremely fast
+        // 50% of shots are bouncy (deterministic alternation)
+        // 70% chance to ricochet
+        const bouncy = shouldRicochet();
+        state.laserShotIndex += 1;
+        state.bullets.push({ x:p.x, y:p.y-24, vy:speed, vx: 0, r:6, kind: 'laser', len: 24, thickness: 4, bouncy });
+        playGunshot(); // reuse small shot sound for laser
       } else {
         state._cooldown = 0.18;
         state.bullets.push({ x:p.x, y:p.y-24, vy:-380, r:5, kind: 'bubble' });
@@ -183,12 +209,16 @@ function update(dt: number, nowMs: number){
   if (state.bullets.length > 160) state.bullets.splice(0, state.bullets.length - 160);
 
   // upgrades: spawn every +200 points, two choices if allowed, but only one bubble visible at once
-  if (!state.gameOver && !state.bazookaActive && !state.shotgunActive && state.bazookaCooldown <= 0 && state.upgrades.length === 0) {
+      if (!state.gameOver && !state.bazookaActive && !state.shotgunActive && !state.laserActive && state.bazookaCooldown <= 0 && state.upgrades.length === 0) {
     if (shouldSpawnUpgrade(state.score, state.nextUpgradeAt)){
       const xCenter = w * (0.25 + Math.random()*0.5);
-      // Choose positions for two bubbles
-      state.upgrades.push({ x: xCenter - 30, y: -20, r: 12, vy: 45, kind: 'bazooka' });
-      state.upgrades.push({ x: xCenter + 30, y: -20, r: 12, vy: 45, kind: 'shotgun' });
+      const spread = 240 + Math.random()*240; // drastically larger separation
+      const baseVy = 42 + Math.random()*10;  // similar vertical speed
+      const jitter = () => (Math.random()*2-1) * 18; // mild horizontal drift
+      // 30% larger bubbles (r ~ 21) with horizontal drift, include laser
+      state.upgrades.push({ x: xCenter - spread, y: -24, r: 21, vy: baseVy, vx: jitter(), kind: 'bazooka' });
+      state.upgrades.push({ x: xCenter, y: -24, r: 21, vy: baseVy, vx: jitter(), kind: 'laser' });
+      state.upgrades.push({ x: xCenter + spread, y: -24, r: 21, vy: baseVy, vx: jitter(), kind: 'shotgun' });
       state.nextUpgradeAt = nextUpgradeScore(state.nextUpgradeAt);
     }
   }
@@ -215,8 +245,13 @@ function update(dt: number, nowMs: number){
         state.patties.splice(i,1);
         state.bullets.splice(j,1);
         state.score += 50;
+        // Regular bullet impact flair (small puff) and soft pop when not bazooka/shotgun splash
+        if (!state.bazookaActive && !state.shotgunActive && b.kind !== 'missile') {
+          state.impacts.push({ x: a.x, y: a.y, life: 0, duration: 0.22 });
+          playImpact();
+        }
         // Splash damage: bazooka/missile (medium radius) or shotgun (small radius)
-        if (state.bazookaActive || b.kind === 'missile' || state.shotgunActive) {
+      if (state.bazookaActive || b.kind === 'missile' || state.shotgunActive) {
           const splashR = (state.shotgunActive && b.kind !== 'missile') ? 28 : 60;
           // Collect indices then remove from back to front
           const hitIdx = getExplosionHitIndices(state.patties, a.x, a.y, splashR);
@@ -231,6 +266,11 @@ function update(dt: number, nowMs: number){
           if (!(state as any).explosions) (state as any).explosions = [];
           state.explosions.push({ x: a.x, y: a.y, life: 0, duration: 0.35 });
           playExplosion();
+        }
+        // Laser bounce: random chance may bounce off at an angle and continue (no extra damage for first target)
+        if (b.kind === 'laser' && b.bouncy && !b.bounced) {
+          const vel = randomRicochetVelocity(900);
+          state.bullets.push({ x: a.x, y: a.y, vy: vel.vy, vx: vel.vx, r: 6, kind: 'laser', len: 22, thickness: 5, bouncy: false, bounced: true });
         }
         break;
       }
@@ -275,24 +315,56 @@ function update(dt: number, nowMs: number){
         break;
       }
     }
+    // ricochet laser can harm player
+    for (let j = state.bullets.length - 1; j >= 0; j--) {
+      const b = state.bullets[j];
+      if (b.kind !== 'laser') continue;
+      // only consider bounced lasers (with vx and bounced flag)
+      if (!b.bounced) continue;
+      const playerR = approximatePlayerRadius(p.w, p.h);
+      if (circlesOverlap(b.x, b.y, Math.max(6, (b.thickness || 4)), p.x, p.y, playerR)) {
+        if (p.invuln <= 0) {
+          p.hits += 1;
+          p.invuln = 1.2;
+          // remove laser on hit
+          state.bullets.splice(j,1);
+          if (p.hits >= p.maxHits) {
+            state.gameOver = true;
+            controls.left = controls.right = controls.fire = false;
+            if (!state.deathExplosionPlayed) {
+              state.deathExplosionPlayed = true;
+              state.explosions.push({ x: p.x, y: p.y, life: 0, duration: 0.6 });
+              state.explosions.push({ x: p.x+18, y: p.y-10, life: 0, duration: 0.5 });
+              state.explosions.push({ x: p.x-16, y: p.y+6, life: 0, duration: 0.5 });
+              playExplosion();
+            }
+          }
+        }
+        break;
+      }
+    }
   }
 
   // upgrades movement and pickup
-  for (const u of state.upgrades) u.y += u.vy * dt;
+  for (const u of state.upgrades) { u.y += u.vy * dt; if (u.vx) u.x += u.vx * dt; }
   state.upgrades = state.upgrades.filter(u => u.y < h + 40);
   // pickup by bullet or player (safe helper)
   processUpgradePickups(state);
 
   // bazooka/shotgun timers and shared cooldown
-  if (state.bazookaActive) {
+      if (state.bazookaActive) {
     state.bazookaTimer -= dt;
     if (state.bazookaTimer <= 0) { state.bazookaActive = false; state.bazookaTimer = 0; state.bazookaCooldown = 10; }
   }
-  if (state.shotgunActive) {
+      if (state.shotgunActive) {
     state.shotgunTimer -= dt;
     if (state.shotgunTimer <= 0) { state.shotgunActive = false; state.shotgunTimer = 0; state.bazookaCooldown = 10; }
   }
-  if (!state.bazookaActive && !state.shotgunActive && state.bazookaCooldown > 0) {
+      if (state.laserActive) {
+        state.laserTimer -= dt;
+        if (state.laserTimer <= 0) { state.laserActive = false; state.laserTimer = 0; state.bazookaCooldown = 10; }
+      }
+      if (!state.bazookaActive && !state.shotgunActive && !state.laserActive && state.bazookaCooldown > 0) {
     state.bazookaCooldown -= dt;
     if (state.bazookaCooldown < 0) state.bazookaCooldown = 0;
   }
@@ -306,6 +378,13 @@ function update(dt: number, nowMs: number){
     }
     if (state.explosions.length > 32) state.explosions.splice(0, state.explosions.length - 32);
   }
+  // impacts life update
+  for (let i = state.impacts.length - 1; i >= 0; i--) {
+    const im = state.impacts[i];
+    im.life += dt;
+    if (im.life >= im.duration) state.impacts.splice(i,1);
+  }
+  if (state.impacts.length > 64) state.impacts.splice(0, state.impacts.length - 64);
 }
 
 function draw(nowMs: number){
@@ -389,6 +468,17 @@ function draw(nowMs: number){
       ctx.fillStyle = '#d22';
       ctx.fillRect(-4, 8, 8, 4);
       ctx.restore();
+    } else if (b.kind === 'laser') {
+      // Draw laser as a longer, thicker streak
+      const len = b.len ?? 24; const thick = b.thickness ?? 4;
+      ctx.save();
+      ctx.strokeStyle = '#ff3b30';
+      ctx.lineWidth = thick;
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.lineTo(b.x + (b.vx || 0) * 0.04, b.y - Math.abs(b.vy) * 0.04 - len);
+      ctx.stroke();
+      ctx.restore();
     } else {
       // bubble bullet
       ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
@@ -450,6 +540,21 @@ function draw(nowMs: number){
     ctx.restore();
   }
 
+  // small impact puffs for regular bullets
+  for (const im of state.impacts) {
+    const t = Math.min(1, im.life / im.duration);
+    const alpha = 1 - t;
+    const r = 6 + t * 10;
+    ctx.save();
+    ctx.globalAlpha = 0.7 * alpha;
+    ctx.fillStyle = '#d0f0ff';
+    ctx.beginPath(); ctx.arc(im.x, im.y, r, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 0.6 * alpha;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(im.x + 4, im.y - 2, r*0.5, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
   // HUD: score, level, health
   ctx.fillStyle = 'white';
   ctx.font = 'bold 24px system-ui, -apple-system, Segoe UI, Roboto';
@@ -476,59 +581,54 @@ function draw(nowMs: number){
       // bazooka glyph
       ctx.rotate( -0.2 );
       ctx.fillStyle = '#2f2f2f';
-      ctx.fillRect(-6, -3, 18, 6);
+      ctx.fillRect(-7, -3, 20, 6);
       ctx.fillStyle = '#5a5a5a';
-      ctx.fillRect(-10, -2, 8, 4);
-    } else {
-      // shotgun glyph: rectangle with 5 short barrels
+      ctx.fillRect(-12, -2, 9, 4);
+    } else if (u.kind === 'shotgun') {
+      // shotgun glyph: stock + 5 barrels
       ctx.fillStyle = '#2e2e2e';
-      ctx.fillRect(-10, -3, 20, 6);
+      ctx.fillRect(-12, -3, 24, 6);
       ctx.fillStyle = '#c0c0c0';
       for (let i=0;i<5;i++){
-        const bx = -10 + i*5 - 10*0.0;
-        ctx.fillRect(bx, -4, 2, 8);
+        const bx = -12 + i*6;
+        ctx.fillRect(bx, -4, 2.5, 8);
       }
+    } else {
+      // laser glyph: bright vertical rod with glow
+      ctx.save();
+      const grad = ctx.createLinearGradient(0, -10, 0, 10);
+      grad.addColorStop(0, '#9ff1ff');
+      grad.addColorStop(1, '#56d0ff');
+      ctx.fillStyle = grad as any;
+      ctx.shadowColor = 'rgba(159, 241, 255, 0.8)';
+      ctx.shadowBlur = 8;
+      ctx.fillRect(-2, -10, 4, 20);
+      ctx.restore();
     }
     ctx.restore();
   }
 
-  // Bazooka timer HUD (top center)
-  if (state.bazookaActive) {
-    const total = 20;
-    const remain = Math.max(0, Math.min(total, state.bazookaTimer));
-    const pct = remain / total;
-    const barW = Math.min(260, w * 0.5), barH = 10;
-    const bx = (w - barW)/2, by = 14;
-    ctx.save();
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fillRect(bx, by, barW, barH);
-    ctx.fillStyle = '#ff3b30';
-    ctx.fillRect(bx, by, barW * pct, barH);
-    ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, barW, barH);
-    ctx.font = 'bold 12px system-ui, -apple-system, Segoe UI, Roboto';
-    ctx.fillStyle = 'white';
-    ctx.textAlign = 'center';
-    ctx.fillText(`Bazooka ${Math.ceil(remain)}s`, w/2, by + barH + 12);
-    ctx.textAlign = 'start';
-    ctx.restore();
-  } else if ((state as any).bazookaCooldown > 0) {
-    const total = 10;
-    const remain = Math.max(0, Math.min(total, (state as any).bazookaCooldown));
-    const pct = remain / total;
-    const barW = Math.min(260, w * 0.5), barH = 10;
-    const bx = (w - barW)/2, by = 14;
-    ctx.save();
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    ctx.fillRect(bx, by, barW, barH);
-    ctx.fillStyle = '#888';
-    ctx.fillRect(bx, by, barW * pct, barH);
-    ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, barW, barH);
-    ctx.font = 'bold 12px system-ui, -apple-system, Segoe UI, Roboto';
-    ctx.fillStyle = 'white';
-    ctx.textAlign = 'center';
-    ctx.fillText(`Cooldown ${Math.ceil(remain)}s`, w/2, by + barH + 12);
-    ctx.textAlign = 'start';
-    ctx.restore();
+  // Upgrade HUD (active or cooldown)
+  {
+    const hud = computeUpgradeHud(state);
+    if (hud.mode !== 'none') {
+      const barW = Math.min(260, w * 0.5), barH = 10;
+      const bx = (w - barW)/2, by = 14;
+      ctx.save();
+      ctx.fillStyle = hud.mode === 'active' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.2)';
+      ctx.fillRect(bx, by, barW, barH);
+      ctx.fillStyle = hud.mode === 'active' ? '#ff3b30' : '#888';
+      ctx.fillRect(bx, by, barW * hud.pct, barH);
+      ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, barW, barH);
+      ctx.font = 'bold 12px system-ui, -apple-system, Segoe UI, Roboto';
+      ctx.fillStyle = 'white';
+      ctx.textAlign = 'center';
+      const secs = Math.ceil(hud.remain);
+      const label = hud.mode === 'active' ? `${hud.label} ${secs}s` : `${hud.label} ${secs}s`;
+      ctx.fillText(label, w/2, by + barH + 12);
+      ctx.textAlign = 'start';
+      ctx.restore();
+    }
   }
 
   // level up overlay (render only; timer decays in update)
@@ -584,6 +684,16 @@ function draw(nowMs: number){
     for (const line of lines) { ctx.fillText(line, w/2, y); y += 22; }
 
     // author link is provided as a DOM element (#pause-link) layered above the canvas
+    // audio attribution
+    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    const attribution = [
+      'Audio sources:',
+      'Kenney (CC0) — gun/shotgun/missile',
+      'Pixabay — ambience (Underwater Ambience, DRAGON-STUDIO)'
+    ];
+    let ay = h * 0.62;
+    for (const line of attribution) { ctx.fillText(line, w/2, ay); ay += 16; }
     ctx.textAlign = 'start';
     ctx.restore();
   }
@@ -637,12 +747,12 @@ function addPointerListeners(el: HTMLElement){
     if (state.gameOver) { hardReset(state); return; }
     if (state.paused) { state.paused = false; }
     mouseHeld = true;
-    const list = e.changedTouches || [e];
+    const list = e.touches || e.changedTouches || [e];
     for (const t of list){ inputAt(t.clientX, t.clientY, true); }
     e.preventDefault();
   }
   function onMove(e: any){
-    const list = e.changedTouches;
+    const list = e.touches || e.changedTouches;
     if (list) {
       for (const t of list){ inputAt(t.clientX, t.clientY, true); }
     } else if (mouseHeld) {

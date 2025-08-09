@@ -4,9 +4,14 @@ export type Bullet = {
   y: number;
   vy: number;
   r: number;
-  kind: 'bubble' | 'missile';
+  kind: 'bubble' | 'missile' | 'laser';
   vx?: number;
   trail?: TrailSegment[];
+  // laser-specific
+  bouncy?: boolean;
+  bounced?: boolean;
+  len?: number;
+  thickness?: number;
 };
 export type Patty = { x: number; y: number; vx: number; vy: number; size: number };
 
@@ -45,6 +50,12 @@ export type GameState = {
   deathExplosionPlayed: boolean;
   shotgunActive: boolean;
   shotgunTimer: number;
+  impacts: Impact[];
+  missileSoundIndex: number;
+  // laser
+  laserActive: boolean;
+  laserTimer: number;
+  laserShotIndex: number;
 };
 
 export type UpgradePickup = {
@@ -52,10 +63,18 @@ export type UpgradePickup = {
   y: number;
   r: number;
   vy: number;
-  kind: 'bazooka' | 'shotgun';
+  vx?: number;
+  kind: 'bazooka' | 'shotgun' | 'laser';
 };
 
 export type Explosion = {
+  x: number;
+  y: number;
+  life: number;      // 0..duration
+  duration: number;  // seconds
+};
+
+export type Impact = {
   x: number;
   y: number;
   life: number;      // 0..duration
@@ -82,10 +101,16 @@ export function createInitialState(getW: () => number, getH: () => number): Game
     bazookaTimer: 0,
     shotgunActive: false,
     shotgunTimer: 0,
+    // laser
+    laserActive: false,
+    laserTimer: 0,
     upgrades: [],
     bazookaCooldown: 0,
     explosions: [],
     deathExplosionPlayed: false,
+    impacts: [],
+    missileSoundIndex: 0,
+    laserShotIndex: 0,
   };
 }
 
@@ -112,9 +137,15 @@ export function hardReset(state: GameState) {
   state.bazookaTimer = 0;
   state.shotgunActive = false;
   state.shotgunTimer = 0;
+  // laser
+  state.laserActive = false;
+  state.laserTimer = 0;
   state.upgrades.length = 0;
   state.bazookaCooldown = 0;
   state.explosions.length = 0;
   state.deathExplosionPlayed = false;
+  state.impacts.length = 0;
+  state.missileSoundIndex = 0;
+  state.laserShotIndex = 0;
   resetPlayer(state);
 }

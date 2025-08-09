@@ -1,4 +1,5 @@
 import { defineConfig, Plugin } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 function remoteConsolePlugin(): Plugin {
   return {
@@ -29,8 +30,20 @@ function remoteConsolePlugin(): Plugin {
   };
 }
 
+const computedBase = process.env.BASE_PATH ?? (process.env.GITHUB_PAGES ? '/undersea-blaster/' : '/');
+
 export default defineConfig({
-  plugins: [remoteConsolePlugin()],
+  base: computedBase,
+  plugins: [
+    remoteConsolePlugin(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      strategies: 'injectManifest',
+      manifest: false
+    })
+  ],
   test: {
     environment: 'jsdom',
     reporters: 'default',
