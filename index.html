@@ -2,11 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>Undersea Blaster</title>
     <style>
       html, body { height: 100%; margin: 0; background: #062b4f; }
-      #game { display:block; width:100vw; height:100vh; touch-action:none; outline: none; }
+      /* Use dynamic viewport units for iOS Safari */
+      #game { display:block; width:100dvw; height:100dvh; touch-action:none; outline: none; }
       .hint { position: fixed; left: 50%; transform: translateX(-50%); bottom: 6px; color: #9ecbff; font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; opacity:.85; }
       #pause-link { position: fixed; left: 50%; transform: translateX(-50%); bottom: 28%; color: #bfe0ff; font: 16px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5)); display: none; z-index: 10; }
     </style>

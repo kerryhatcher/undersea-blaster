@@ -11,6 +11,11 @@ import { computeUpgradeHud } from './game/hud';
 installClientLogger();
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
+// Prevent iOS Safari page scroll on touch when interacting with canvas
+document.addEventListener('gesturestart', (e)=> e.preventDefault());
+document.addEventListener('touchmove', (e)=> {
+  if (e.target === canvas) e.preventDefault();
+}, { passive: false });
 const ctx = canvas.getContext('2d')!;
 const pauseLinkEl = document.getElementById('pause-link') as HTMLAnchorElement | null;
 
@@ -116,6 +121,13 @@ function loop(now: number){
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
+
+// Register service worker for PWA install
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
 
 function update(dt: number, nowMs: number){
   const w = state.w(), h = state.h();
@@ -735,12 +747,12 @@ function addPointerListeners(el: HTMLElement){
     if (state.gameOver) { hardReset(state); return; }
     if (state.paused) { state.paused = false; }
     mouseHeld = true;
-    const list = e.changedTouches || [e];
+    const list = e.touches || e.changedTouches || [e];
     for (const t of list){ inputAt(t.clientX, t.clientY, true); }
     e.preventDefault();
   }
   function onMove(e: any){
-    const list = e.changedTouches;
+    const list = e.touches || e.changedTouches;
     if (list) {
       for (const t of list){ inputAt(t.clientX, t.clientY, true); }
     } else if (mouseHeld) {
