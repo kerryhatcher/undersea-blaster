@@ -1,4 +1,13 @@
-export type Bullet = { x: number; y: number; vy: number; r: number };
+export type TrailSegment = { x: number; y: number; life: number };
+export type Bullet = {
+  x: number;
+  y: number;
+  vy: number;
+  r: number;
+  kind: 'bubble' | 'missile';
+  vx?: number;
+  trail?: TrailSegment[];
+};
 export type Patty = { x: number; y: number; vx: number; vy: number; size: number };
 
 export type Player = {
@@ -26,6 +35,31 @@ export type GameState = {
   _cooldown: number;
   gameOver: boolean;
   paused: boolean;
+  // upgrades
+  nextUpgradeAt: number;
+  bazookaActive: boolean;
+  bazookaTimer: number;
+  upgrades: UpgradePickup[];
+  bazookaCooldown: number;
+  explosions: Explosion[];
+  deathExplosionPlayed: boolean;
+  shotgunActive: boolean;
+  shotgunTimer: number;
+};
+
+export type UpgradePickup = {
+  x: number;
+  y: number;
+  r: number;
+  vy: number;
+  kind: 'bazooka' | 'shotgun';
+};
+
+export type Explosion = {
+  x: number;
+  y: number;
+  life: number;      // 0..duration
+  duration: number;  // seconds
 };
 
 export function createInitialState(getW: () => number, getH: () => number): GameState {
@@ -42,7 +76,16 @@ export function createInitialState(getW: () => number, getH: () => number): Game
     lastSpawn: 0,
     _cooldown: 0,
     gameOver: false,
-    paused: false,
+    paused: true,
+    nextUpgradeAt: 200,
+    bazookaActive: false,
+    bazookaTimer: 0,
+    shotgunActive: false,
+    shotgunTimer: 0,
+    upgrades: [],
+    bazookaCooldown: 0,
+    explosions: [],
+    deathExplosionPlayed: false,
   };
 }
 
@@ -64,5 +107,14 @@ export function hardReset(state: GameState) {
   state.paused = false;
   state.player.hits = 0;
   state.player.invuln = 0;
+  state.nextUpgradeAt = 200;
+  state.bazookaActive = false;
+  state.bazookaTimer = 0;
+  state.shotgunActive = false;
+  state.shotgunTimer = 0;
+  state.upgrades.length = 0;
+  state.bazookaCooldown = 0;
+  state.explosions.length = 0;
+  state.deathExplosionPlayed = false;
   resetPlayer(state);
 }
