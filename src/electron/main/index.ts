@@ -2,6 +2,7 @@ import { app, BrowserWindow, protocol, shell, ipcMain } from 'electron';
 import * as path from 'path';
 import { securityManager } from './security';
 import { ipcHandlers } from './ipc-handlers';
+import { windowManager } from './window-manager';
 
 let mainWindow: BrowserWindow | null = null;
 const isDevelopment = process.env.NODE_ENV !== 'production';
@@ -11,34 +12,9 @@ securityManager.configureAppSecurity();
 
 // Additional security configurations are handled by SecurityManager
 
-function createWindow(): void {
-  // Create the browser window with security-first configuration
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 720,
-    minWidth: 800,
-    minHeight: 600,
-    backgroundColor: '#062b4f',
-    title: 'Undersea Blaster',
-    webPreferences: {
-      // Security: Critical settings
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      // Path to preload script
-      preload: path.join(__dirname, '../preload/index.cjs')
-    },
-    // Window appearance
-    icon: path.join(__dirname, '../../../assets/icon.png'), // We'll create this later
-    show: false // Don't show until ready
-  });
-
-  // Show window when ready
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
-  });
+async function createWindow(): Promise<void> {
+  // Create the main window using window manager
+  mainWindow = await windowManager.createMainWindow();
 
   // Apply security configurations
   securityManager.secureWindow(mainWindow);
@@ -71,10 +47,7 @@ function createWindow(): void {
     mainWindow.loadFile(indexPath);
   }
 
-  // Handle window closed
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  // Window closing is handled by WindowManager
 }
 
 // Security: Limit protocol access
