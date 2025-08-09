@@ -22,7 +22,7 @@ export function getExplosionHitIndices(patties: Patty[], x: number, y: number, r
 
 // Handles upgrade pickup popping logic safely; returns picked kind or null
 export function processUpgradePickups(state: GameState): 'bazooka' | 'shotgun' | null {
-  let picked: 'bazooka' | 'shotgun' | null = null;
+  let picked: 'bazooka' | 'shotgun' | 'laser' | null = null;
   // bullet pop
   for (let i = state.upgrades.length - 1; i >= 0 && !picked; i--) {
     const u = state.upgrades[i];
@@ -48,11 +48,19 @@ export function processUpgradePickups(state: GameState): 'bazooka' | 'shotgun' |
     if (picked === 'bazooka') {
       state.bazookaActive = true; state.bazookaTimer = 20.0;
       state.shotgunActive = false; state.shotgunTimer = 0;
+      state.laserActive = false; state.laserTimer = 0;
     } else {
-      state.shotgunActive = true; state.shotgunTimer = 20.0;
-      state.bazookaActive = false; state.bazookaTimer = 0;
+      if (picked === 'shotgun') {
+        state.shotgunActive = true; state.shotgunTimer = 20.0;
+        state.bazookaActive = false; state.bazookaTimer = 0;
+        state.laserActive = false; state.laserTimer = 0;
+      } else if (picked === 'laser') {
+        state.laserActive = true; state.laserTimer = 20.0;
+        state.bazookaActive = false; state.bazookaTimer = 0;
+        state.shotgunActive = false; state.shotgunTimer = 0;
+      }
     }
     state.upgrades.length = 0; // remove both bubbles safely
   }
-  return picked;
+  return picked as any;
 }
