@@ -163,6 +163,34 @@ export function playExplosion() {
   src.start();
 }
 
+export function playImpact() {
+  const ctx = getCtx(); if (!unlocked || !ctx) return;
+  // Prefer smaller explosion sample at lower gain
+  if (sampleBuffers.explosion_small?.length) {
+    const src = ctx.createBufferSource();
+    const list = sampleBuffers.explosion_small;
+    src.buffer = list[Math.floor(Math.random() * list.length)];
+    const g = ctx.createGain(); g.gain.value = 0.6;
+    src.connect(g).connect(ctx.destination);
+    src.start();
+    return;
+  }
+  // Fallback quick pop
+  const duration = 0.12;
+  const buffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) {
+    const t = i / data.length;
+    const amp = (1 - t);
+    data[i] = (Math.random() * 2 - 1) * amp * 0.7;
+  }
+  const src = ctx.createBufferSource(); src.buffer = buffer;
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 600;
+  const g = envGain(ctx, duration, 0.25, 0.002, 0.1);
+  src.connect(hp).connect(g).connect(ctx.destination);
+  src.start();
+}
+
 export function startAmbience() {
   if (!unlocked || !audioCtx) return;
   if (ambienceTimer) return;
