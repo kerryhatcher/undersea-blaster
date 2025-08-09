@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Undersea Blaster – Mockup</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #062b4f; }
+    #game { display:block; width:100vw; height:100vh; touch-action:none; outline: none; }
+    .hint { position: fixed; left: 50%; transform: translateX(-50%); bottom: 6px; color: #9ecbff; font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; opacity:.85; }
+  </style>
+</head>
+<body>
+  <canvas id="game" tabindex="0" role="application" aria-label="Undersea Blaster game canvas"></canvas>
+  <div class="hint">Click/tap the game to focus. Use ◀/▶ (or A/D) to move, Space/Enter to shoot. Mobile: on-screen pads.</div>
+  <script>
+    // ============================
+    // Canvas & scaling
+    // ============================
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const focusGame = () => canvas.focus({ preventScroll: true });
+    setTimeout(focusGame, 0);
+    canvas.addEventListener('pointerdown', focusGame);
+    canvas.addEventListener('mouseenter', focusGame);
+
+    function resize() {
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width  = Math.floor(innerWidth  * dpr);
+      canvas.height = Math.floor(innerHeight * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // work in CSS pixels
+    }
+    addEventListener('resize', resize);
+    resize();
+
+    // ============================
+    // SVG sprites -> Image()
+    // ============================
+    const svgSponge = `<?xml version='1.0'?>
+      <svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'>
+        <defs>
+          <radialGradient id='g' cx='50%' cy='40%' r='70%'>
+            <stop offset='0%' stop-color='#ffd94d'/>
+            <stop offset='100%' stop-color='#f2b800'/>
+          </radialGradient>
+        </defs>
+        <rect x='6' y='10' rx='12' ry='12' width='68' height='58' fill='url(#g)' stroke='#9c7a00' stroke-width='3'/>
+        <g fill='#d89e00' opacity='0.6'>
+          <circle cx='18' cy='24' r='3'/>
+          <circle cx='32' cy='18' r='2.5'/>
+          <circle cx='52' cy='22' r='3'/>
+          <circle cx='44' cy='34' r='2.8'/>
+          <circle cx='22' cy='42' r='3'/>
+          <circle cx='60' cy='46' r='2.4'/>
+          <circle cx='36' cy='54' r='2.8'/>
+        </g>
+      </svg>`;
+
+    const svgPatty = `<?xml version='1.0'?>
+      <svg xmlns='http://www.w3.org/2000/svg' width='72' height='56' viewBox='0 0 72 56'>
+        <g>
+          <ellipse cx='36' cy='16' rx='32' ry='14' fill='#f9c46b' stroke='#b67a2b' stroke-width='3'/>
+          <rect x='8' y='24' width='56' height='10' rx='5' fill='#6d3b19'/>
+          <ellipse cx='36' cy='40' rx='32' ry='12' fill='#eaa84f' stroke='#a36724' stroke-width='3'/>
+          <path d='M10 28 Q 20 35 30 28 T 62 28' stroke='#3a8f2e' stroke-width='6' fill='none'/>
+        </g>
+      </svg>`;
+
+    function svgToImage(svg) {
+      const img = new Image();
+      img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+      return img;
+    }
+
+    const playerImg = svgToImage(svgSponge);
+    const pattyImg  = svgToImage(svgPatty);
+
+    // ============================
+    // Game state
+    // ============================
+    const state = {
+      w: () => canvas.clientWidth,
+      h: () => canvas.clientHeight,
+      player: { x: 0, y: 0, speed: 260, w: 56, h: 56, hits: 0, maxHits: 5, invuln: 0 },
+      bullets: [],
+      patties: [],
+      score: 0,
+      level: 1,
+      scoreAtLevelStart: 0,
+      levelUpTimer: 0,
+      lastSpawn: 0,
+      _cooldown: 0,
+      gameOver: false,
+    };
+
+    function resetPlayer() {
+      state.player.x = state.w() * 0.5;
+      state.player.y = state.h() * 0.78;
+    }
+    function hardReset(){
+      state.bullets.length = 0;
+      state.patties.length = 0;
+      state.score = 0;
+      state.level = 1;
+      state.scoreAtLevelStart = 0;
+      state.levelUpTimer = 0;
+      state.lastSpawn = 0;
+      state._cooldown = 0;
+      state.gameOver = false;
+      state.player.hits = 0;
+      state.player.invuln = 0;
+      resetPlayer();
+    }
+    resetPlayer();
+
+    // ============================
+    // Input
+    // ============================
+    const controls = { left:false, right:false, fire:false };
+
+    // --- On-screen pads (touch/mouse)
+    function hitCircle(px, py, cx, cy, r){
+      const dx = px - cx, dy = py - cy; return (dx*dx + dy*dy) <= r*r;
+    }
+    function inputAt(clientX, clientY, isDown){
+      if (state.gameOver && isDown) { hardReset(); return; }
+      const x = clientX; const y = clientY;
+      const w = state.w(); const h = state.h();
+      const padR = Math.min(56, Math.min(w, h) * 0.065);
+      const leftCx = 24 + padR, leftCy = h - (24 + padR);        // ◀
+      const rightCx = leftCx + (padR * 2.6), rightCy = leftCy;   // ▶
+      const fireR = padR * 1.6; const fireCx = w - (24 + fireR), fireCy = h - (24 + fireR);
+
+      if (hitCircle(x,y,leftCx,leftCy,padR)) { controls.left = isDown; return; }
+      if (hitCircle(x,y,rightCx,rightCy,padR)) { controls.right = isDown; return; }
+      if (hitCircle(x,y,fireCx,fireCy,fireR)) { controls.fire = isDown; return; }
+    }
+
+    function addPointerListeners(el){
+      let mouseHeld = false;
+      const clearControls = () => { controls.left = controls.right = controls.fire = false; };
+
+      function onDown(e){
+        mouseHeld = true;
+        const list = e.changedTouches || [e];
+        for (const t of list){ inputAt(t.clientX, t.clientY, true); }
+        e.preventDefault();
+      }
+      function onMove(e){
+        const list = e.changedTouches;
+        if (list) {
+          for (const t of list){ inputAt(t.clientX, t.clientY, true); }
+        } else if (mouseHeld) {
+          inputAt(e.clientX, e.clientY, true);
+        }
+        e.preventDefault();
+      }
+      function onUp(e){
+        mouseHeld = false;
+        clearControls();
+        e.preventDefault();
+      }
+
+      // Touch
+      el.addEventListener('touchstart', onDown, {passive:false});
+      el.addEventListener('touchmove',  onMove, {passive:false});
+      el.addEventListener('touchend',   onUp,   {passive:false});
+      el.addEventListener('touchcancel',onUp,   {passive:false});
+      // Mouse
+      el.addEventListener('mousedown', onDown);
+      el.addEventListener('mousemove', onMove);
+      addEventListener('mouseup', onUp);
+      el.addEventListener('mouseleave', onUp);
+      addEventListener('blur', onUp);
+      document.addEventListener('visibilitychange', ()=>{ if (document.hidden) onUp(new Event('visibilitychange')); });
+    }
+    addPointerListeners(canvas);
+
+    // --- Keyboard (only when canvas is focused)
+    const KEYMAP = { ArrowLeft:'left', ArrowRight:'right', KeyA:'left', KeyD:'right' };
+    function handleKeyDown(e){
+      if (state.gameOver) {
+        if (e.code === 'KeyR' || e.code === 'Space' || e.key === 'Enter') { hardReset(); e.preventDefault(); }
+        return;
+      }
+      if (document.activeElement !== canvas) return; // only when game is focused
+      if (e.repeat) return; // ignore auto-repeats
+      if (e.code === 'Space' || e.key === 'Enter') { controls.fire = true; e.preventDefault(); return; }
+      const dir = KEYMAP[e.code];
+      if (dir){ controls[dir] = true; e.preventDefault(); }
+    }
+    function handleKeyUp(e){
+      if (document.activeElement !== canvas) return;
+      if (e.code === 'Space' || e.key === 'Enter') { controls.fire = false; e.preventDefault(); return; }
+      const dir = KEYMAP[e.code];
+      if (dir){ controls[dir] = false; e.preventDefault(); }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', ()=>{ controls.left = controls.right = controls.fire = false; });
+    canvas.addEventListener('blur', ()=>{ controls.left = controls.right = controls.fire = false; });
+
+    // ============================
+    // Spawning
+    // ============================
+    function spawnPatty(speedScale=1){
+      const w = state.w();
+      const size = 42 + Math.random()*26; // visual size
+      const vxBase = (Math.random()*2-1)*40 * speedScale;
+      const vyBase = (40 + Math.random()*60) * speedScale;
+      state.patties.push({
+        x: Math.random()*w,
+        y: -size,
+        vx: vxBase,
+        vy: vyBase,
+        size
+      });
+    }
+
+    function getSpawnIntervalMs(){
+      // Progressively faster spawns per level, but not too aggressive
+      const dec = (state.level - 1) * 35; // 35ms faster per level
+      return Math.max(300, 650 - dec);
+    }
+
+    // ============================
+    // Game loop
+    // ============================
+    let last = performance.now();
+    function loop(now){
+      const dt = Math.min(0.033, (now - last) / 1000);
+      last = now;
+      update(dt, now);
+      draw(now);
+      requestAnimationFrame(loop);
+    }
+
+    function update(dt, nowMs){
+      nowMs = (typeof nowMs === 'number') ? nowMs : performance.now();
+      const w = state.w(), h = state.h();
+
+      // Player movement
+      const p = state.player;
+      if (!state.gameOver) {
+        if (controls.left && !controls.right) p.x -= p.speed*dt;
+        if (controls.right && !controls.left) p.x += p.speed*dt;
+      }
+      p.x = Math.max(28, Math.min(w-28, p.x));
+
+      // Invulnerability timer decay
+      if (p.invuln > 0) p.invuln -= dt;
+
+      // Shooting
+      state._cooldown -= dt;
+      if (!state.gameOver) {
+        if (controls.fire && state._cooldown <= 0){
+          state._cooldown = 0.18; // rapid bubbles
+          state.bullets.push({ x:p.x, y:p.y-24, vy:-380, r:5 });
+        }
+      }
+
+      // Bullets
+      state.bullets = state.bullets.filter(b=> (b.y += b.vy*dt) > -20);
+
+      // Patties spawn cadence
+      const speedScale = Math.min(3, 1 + (state.level - 1) * 0.12);
+      if (nowMs - state.lastSpawn > getSpawnIntervalMs()) {
+        spawnPatty(speedScale);
+        state.lastSpawn = nowMs;
+      }
+      for (const a of state.patties){
+        a.x += a.vx*dt; a.y += a.vy*dt;
+      }
+      state.patties = state.patties.filter(a=> a.y < h + 80);
+
+      // Collisions (circle vs circle approx)
+      for (let i = state.patties.length-1; i>=0; i--){
+        const a = state.patties[i];
+        for (let j = state.bullets.length-1; j>=0; j--){
+          const b = state.bullets[j];
+          const dx=a.x-b.x, dy=a.y-b.y, rr=(a.size*0.46 + b.r); // rough radii
+          if (dx*dx + dy*dy < rr*rr){
+            state.patties.splice(i,1);
+            state.bullets.splice(j,1);
+            state.score += 50;
+            break;
+          }
+        }
+      }
+
+      // Level up each 1000 points gained since last level start
+      const levelProgress = state.score - state.scoreAtLevelStart;
+      if (!state.gameOver && levelProgress >= 1000) {
+        state.level += 1;
+        state.scoreAtLevelStart = state.score;
+        state.levelUpTimer = 2.0; // seconds overlay
+      }
+
+      // Player damage when patty touches player
+      if (!state.gameOver) {
+        for (let i = state.patties.length-1; i>=0; i--) {
+          const a = state.patties[i];
+          const dx = a.x - p.x; const dy = a.y - p.y;
+          const playerR = Math.min(p.w, p.h) * 0.42; // approximate radius for sponge
+          const rr = (a.size * 0.46) + playerR;
+          if (dx*dx + dy*dy < rr*rr) {
+            if (p.invuln <= 0) {
+              p.hits += 1;
+              p.invuln = 1.2; // i-frames
+              state.patties.splice(i,1);
+              if (p.hits >= p.maxHits) {
+                state.gameOver = true;
+                // clear controls so player stops
+                controls.left = controls.right = controls.fire = false;
+              }
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    function draw(nowMs){
+      const w = state.w(), h = state.h();
+      // Background
+      const g = ctx.createLinearGradient(0,0,0,h);
+      g.addColorStop(0,'#0e6ab0');
+      g.addColorStop(1,'#083a66');
+      ctx.fillStyle = g; ctx.fillRect(0,0,w,h);
+
+      // Bubbles backdrop
+      ctx.save();
+      ctx.globalAlpha = 0.25;
+      for (let i=0;i<30;i++){
+        const x = (i*97 % w);
+        const y = (i*173 + ((nowMs||0)*0.03)%h) % h;
+        ctx.beginPath(); ctx.arc(x,y, (i%7)+2, 0, Math.PI*2); ctx.fillStyle='#d0f0ff'; ctx.fill();
+      }
+      ctx.restore();
+
+      // Patties
+      for (const a of state.patties){
+        const s = a.size/72; // patty viewbox width
+        const drawW = 72*s, drawH = 56*s;
+        ctx.drawImage(pattyImg, a.x-drawW/2, a.y-drawH/2, drawW, drawH);
+      }
+
+      // Player
+      const pw = state.player.w, ph = state.player.h;
+      ctx.save();
+      // Flash while invulnerable
+      if (state.player.invuln > 0 && !state.gameOver) {
+        const blink = (Math.floor((nowMs||0) * 0.02) % 2) === 0;
+        ctx.globalAlpha = blink ? 0.45 : 1;
+      }
+      ctx.drawImage(playerImg, state.player.x - pw/2, state.player.y - ph/2, pw, ph);
+      // Damage overlay: red tint intensity grows with hits
+      if (state.player.hits > 0) {
+        const damageAlpha = Math.min(0.6, state.player.hits / state.player.maxHits * 0.6);
+        ctx.fillStyle = `rgba(255, 59, 48, ${damageAlpha.toFixed(3)})`;
+        ctx.fillRect(state.player.x - pw/2, state.player.y - ph/2, pw, ph);
+        // Cracks
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 2;
+        for (let i=0; i<state.player.hits; i++) {
+          const t = i / state.player.maxHits;
+          const x1 = state.player.x - pw/2 + (pw * (0.2 + t * 0.6));
+          const y1 = state.player.y - ph/2 + (ph * (0.2 + (1-t) * 0.6));
+          const x2 = state.player.x - pw/2 + (pw * (0.8 - t * 0.4));
+          const y2 = state.player.y - ph/2 + (ph * (0.2 + t * 0.6));
+          ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+        }
+      }
+      ctx.restore();
+
+      // Bullets (bubbles)
+      for (const b of state.bullets){
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+        ctx.fillStyle = '#b3ecff'; ctx.fill();
+        ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+      }
+
+      // HUD: score & health
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 24px system-ui, -apple-system, Segoe UI, Roboto';
+      ctx.fillText(String(state.score), 12, 34);
+      // Level indicator
+      ctx.font = 'bold 18px system-ui, -apple-system, Segoe UI, Roboto';
+      ctx.fillText(`Lv ${state.level}`, 12, 56);
+      // Health pips
+      const hpX = w - 12, hpY = 22, r = 6;
+      for (let i=0;i<state.player.maxHits;i++){
+        ctx.beginPath();
+        ctx.arc(hpX - i*18, hpY, r, 0, Math.PI*2);
+        ctx.fillStyle = (i < (state.player.maxHits - state.player.hits)) ? '#b3ecff' : 'rgba(255,255,255,0.25)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; ctx.stroke();
+      }
+
+      // UI pads
+      const padR = Math.min(56, Math.min(w, h) * 0.065);
+      const leftCx = 24 + padR, leftCy = h - (24 + padR);
+      const rightCx = leftCx + (padR * 2.6), rightCy = leftCy;
+      const fireR = padR * 1.6; const fireCx = w - (24 + fireR), fireCy = h - (24 + fireR);
+
+      ctx.globalAlpha = 0.25;
+      // Left circle
+      drawCircle(leftCx,leftCy,padR, controls.left);
+      drawTriangle(leftCx,leftCy,padR*0.5, 'left');
+      // Right circle
+      drawCircle(rightCx,rightCy,padR, controls.right);
+      drawTriangle(rightCx,rightCy,padR*0.5, 'right');
+      // Fire button
+      drawCircle(fireCx, fireCy, fireR, controls.fire, '#ff3b30');
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath(); ctx.arc(fireCx, fireCy, fireR*0.45, 0, Math.PI*2); ctx.fillStyle='#ffffff'; ctx.fill();
+      ctx.globalAlpha = 1;
+
+      function drawCircle(x,y,r,active,color='#000'){
+        ctx.save();
+        ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
+        ctx.fillStyle = (color === '#000') ? 'rgba(0,0,0,0.35)' : color;
+        ctx.fill();
+        ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.stroke();
+        if(active){ ctx.beginPath(); ctx.arc(x,y,r*0.7,0,Math.PI*2); ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.stroke(); }
+        ctx.restore();
+      }
+      function drawTriangle(x,y,s,dir){
+        ctx.save();
+        ctx.fillStyle='white';
+        ctx.beginPath();
+        if(dir==='left'){
+          ctx.moveTo(x - s*0.6, y);
+          ctx.lineTo(x + s*0.4, y - s);
+          ctx.lineTo(x + s*0.4, y + s);
+        } else {
+          ctx.moveTo(x + s*0.6, y);
+          ctx.lineTo(x - s*0.4, y - s);
+          ctx.lineTo(x - s*0.4, y + s);
+        }
+        ctx.closePath();
+        ctx.globalAlpha = .9; ctx.fill(); ctx.restore();
+      }
+
+      // Level up overlay timer
+      if (state.levelUpTimer > 0) {
+        state.levelUpTimer = Math.max(0, state.levelUpTimer - Math.min(0.033, (nowMs - last) / 1000) || 0.016);
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, state.levelUpTimer / 1.5);
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillRect(0,0,w,h);
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 28px system-ui, -apple-system, Segoe UI, Roboto';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Level ${state.level}`, w/2, h*0.28);
+        ctx.textAlign = 'start';
+        ctx.restore();
+      }
+
+      // Game over overlay
+      if (state.gameOver) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0,0,w,h);
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 36px system-ui, -apple-system, Segoe UI, Roboto';
+        ctx.textAlign = 'center';
+        ctx.fillText('Game Over', w/2, h/2 - 10);
+        ctx.font = '16px system-ui, -apple-system, Segoe UI, Roboto';
+        ctx.fillText('Press R/Space/Enter or tap to restart', w/2, h/2 + 20);
+        ctx.textAlign = 'start';
+        ctx.restore();
+      }
+    }
+
+    // ============================
+    // Self-tests (run once)
+    // ============================
+    function runTests(){
+      const results = [];
+      const assert = (name, cond) => { results.push({name, cond}); console[cond?'log':'error'](`[TEST] ${cond?'PASS':'FAIL'} – ${name}`); };
+
+      // 1) Spawn after 650ms
+      hardReset();
+      update(0.016, 700);
+      assert('Spawns patty after 650ms', state.patties.length >= 1);
+
+      // 2) No spawn if <650ms since lastSpawn
+      hardReset();
+      state.lastSpawn = 690;
+      update(0.016, 700);
+      assert('No spawn when interval < 650ms', state.patties.length === 0);
+
+      // 3) Shooting adds a bullet
+      hardReset();
+      controls.fire = true; state._cooldown = 0; update(0.016, performance.now());
+      assert('Fire adds a bullet', state.bullets.length === 1);
+      controls.fire = false;
+
+      // 4) Player clamps inside bounds
+      hardReset();
+      state.player.x = -999; update(0.016, performance.now());
+      const leftOK = state.player.x >= 28; 
+      state.player.x = state.w()+999; update(0.016, performance.now());
+      const rightOK = state.player.x <= state.w()-28;
+      assert('Player clamped within bounds', leftOK && rightOK);
+
+      // 5) Bullet–patty collision increments score and removes patty
+      hardReset();
+      const cx = state.w()/2, cy = state.h()/2;
+      state.patties.push({x:cx, y:cy, vx:0, vy:0, size:50});
+      state.bullets.push({x:cx, y:cy, vy:0, r:6});
+      const before = state.score;
+      update(0.016, performance.now());
+      assert('Collision removes patty & +50 score', state.patties.length === 0 && state.score === before + 50);
+
+      // 6) Keyboard: changes only when focused
+      hardReset();
+      canvas.blur();
+      window.dispatchEvent(new KeyboardEvent('keydown', {code:'ArrowLeft'}));
+      assert('Keyboard ignored when canvas not focused', controls.left === false);
+      canvas.focus();
+      window.dispatchEvent(new KeyboardEvent('keydown', {code:'ArrowRight'}));
+      assert('Keyboard sets right when focused', controls.right === true);
+      window.dispatchEvent(new KeyboardEvent('keyup', {code:'ArrowRight'}));
+      assert('Keyboard clears right on keyup', controls.right === false);
+
+      // 7) Blur clears controls
+      controls.left = controls.right = controls.fire = true;
+      window.dispatchEvent(new Event('blur'));
+      assert('Controls cleared on blur', !controls.left && !controls.right && !controls.fire);
+
+      // Banner
+      const pass = results.filter(r=>r.cond).length; const fail = results.length - pass;
+      const banner = document.createElement('div');
+      banner.textContent = `Self-tests: ${pass} passed / ${fail} failed`;
+      banner.style.cssText = 'position:fixed;top:6px;right:6px;background:rgba(0,0,0,.55);color:#fff;padding:4px 8px;border-radius:6px;font:12px system-ui;z-index:9999';
+      document.body.appendChild(banner);
+      setTimeout(()=>banner.remove(), 2500);
+
+      // Clean slate
+      hardReset();
+    }
+
+    runTests();
+    requestAnimationFrame(loop);
+
+    // Keep player centered after orientation changes
+    addEventListener('orientationchange', () => setTimeout(resetPlayer, 150));
+  </script>
+</body>
+</html>
