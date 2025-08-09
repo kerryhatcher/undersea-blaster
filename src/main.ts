@@ -1,12 +1,15 @@
 import { createInitialState, hardReset, resetPlayer, GameState } from './game/state';
-import { getSpawnIntervalMs, getSpeedScale, shouldLevelUp } from './game/systems/difficulty';
+import { getSpawnIntervalMs, getSpeedScale, shouldLevelUp, applyLevelUp } from './game/systems/difficulty';
 import { circlesOverlap, approximatePlayerRadius } from './game/systems/collision';
+import { nextUpgradeScore, shouldSpawnUpgrade, getExplosionHitIndices, processUpgradePickups } from './game/systems/upgrades';
 import { installClientLogger } from './dev/client-logger';
+import { installAudioActivation, playGunshot, playMissile, playExplosion, startAmbience, stopAmbience } from './game/audio';
 
 installClientLogger();
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
+const pauseLinkEl = document.getElementById('pause-link') as HTMLAnchorElement | null;
 
 const focusGame = () => canvas.focus({ preventScroll: true });
 setTimeout(focusGame, 0);
@@ -21,6 +24,8 @@ function resize() {
 }
 addEventListener('resize', resize);
 resize();
+installAudioActivation(canvas);
+startAmbience();
 
 // SVG assets (define before using)
 function svgToImage(svg: string) {
@@ -64,6 +69,10 @@ const pattyImg  = svgToImage(svgPatty);
 
 const state: GameState = createInitialState(() => canvas.clientWidth, () => canvas.clientHeight);
 resetPlayer(state);
+// Expose minimal test handle in dev for Playwright-driven scenarios
+if ((import.meta as any).env?.DEV) {
+  (window as any).__game = { state };
+}
 
 const controls = { left:false, right:false, fire:false };
 
@@ -77,6 +86,8 @@ function handleKeyDown(e: KeyboardEvent){
   }
   if (document.activeElement !== canvas) return;
   if ((e as any).repeat) return;
+  // Allow keyboard to unpause
+  if (state.paused && (e.code === 'Space' || e.key === 'Enter')) { state.paused = false; e.preventDefault(); return; }
   if (e.code === 'Space' || e.key === 'Enter') { controls.fire = true; e.preventDefault(); return; }
   const dir = KEYMAP[e.code];
   if (dir){ (controls as any)[dir] = true; e.preventDefault(); }
@@ -124,12 +135,63 @@ function update(dt: number, nowMs: number){
   state._cooldown -= dt;
   if (!state.gameOver) {
     if (controls.fire && state._cooldown <= 0){
-      state._cooldown = 0.18;
-      state.bullets.push({ x:p.x, y:p.y-24, vy:-380, r:5 });
+      if (state.bazookaActive) {
+        state._cooldown = 0.4; // fire slower
+        state.bullets.push({ x:p.x, y:p.y-24, vy:-260, vx: 0, r:6, kind: 'missile', trail: [] });
+        playMissile();
+      } else if (state.shotgunActive) {
+        state._cooldown = 0.36; // slightly slower
+        const speed = -460; // faster bullets
+        const spread = 0.28; // radians total spread
+        const count = 5;
+        for (let i=0;i<count;i++){
+          const t = (i - (count-1)/2) / ((count-1)/2);
+          const angle = t * (spread/2);
+          const vx = Math.sin(angle) * Math.abs(speed);
+          const vy = Math.cos(angle) * speed;
+          state.bullets.push({ x:p.x, y:p.y-24, vy, vx, r:5, kind: 'bubble' });
+        }
+        playGunshot();
+      } else {
+        state._cooldown = 0.18;
+        state.bullets.push({ x:p.x, y:p.y-24, vy:-380, r:5, kind: 'bubble' });
+        playGunshot();
+      }
     }
   }
 
-  state.bullets = state.bullets.filter(b=> (b.y += b.vy*dt) > -20);
+  // bullets update (position + trails)
+  for (const b of state.bullets){
+    if (b.kind === 'missile') {
+      // leave smoke trail
+      if (!b.trail) b.trail = [];
+      b.trail.push({ x: b.x, y: b.y, life: 0.6 });
+      // simple straight missile (could add slight homing wobble)
+    }
+    b.y += b.vy * dt;
+    if (b.vx) b.x += b.vx * dt;
+  }
+  // decay trails and cull old segments
+  for (const b of state.bullets){
+    if (b.trail) {
+      for (const seg of b.trail) seg.life -= dt;
+      b.trail = b.trail.filter(seg => seg.life > 0);
+      if (b.trail.length > 30) b.trail.splice(0, b.trail.length - 30);
+    }
+  }
+  state.bullets = state.bullets.filter(b=> b.y > -40 && b.y < state.h()+40 && b.x > -40 && b.x < state.w()+40);
+  if (state.bullets.length > 160) state.bullets.splice(0, state.bullets.length - 160);
+
+  // upgrades: spawn every +200 points, two choices if allowed, but only one bubble visible at once
+  if (!state.gameOver && !state.bazookaActive && !state.shotgunActive && state.bazookaCooldown <= 0 && state.upgrades.length === 0) {
+    if (shouldSpawnUpgrade(state.score, state.nextUpgradeAt)){
+      const xCenter = w * (0.25 + Math.random()*0.5);
+      // Choose positions for two bubbles
+      state.upgrades.push({ x: xCenter - 30, y: -20, r: 12, vy: 45, kind: 'bazooka' });
+      state.upgrades.push({ x: xCenter + 30, y: -20, r: 12, vy: 45, kind: 'shotgun' });
+      state.nextUpgradeAt = nextUpgradeScore(state.nextUpgradeAt);
+    }
+  }
 
   const speedScale = getSpeedScale(state.level);
   if (nowMs - state.lastSpawn > getSpawnIntervalMs(state.level)) {
@@ -140,6 +202,7 @@ function update(dt: number, nowMs: number){
     a.x += a.vx*dt; a.y += a.vy*dt;
   }
   state.patties = state.patties.filter(a=> a.y < h + 80);
+  if (state.patties.length > 80) state.patties.splice(0, state.patties.length - 80);
 
   // bullet-patty collisions
   for (let i = state.patties.length-1; i>=0; i--){
@@ -148,9 +211,27 @@ function update(dt: number, nowMs: number){
       const b = state.bullets[j];
       const ar = a.size*0.46, br = b.r;
       if (circlesOverlap(a.x, a.y, ar, b.x, b.y, br)){
+        // Primary hit
         state.patties.splice(i,1);
         state.bullets.splice(j,1);
         state.score += 50;
+        // Splash damage: bazooka/missile (medium radius) or shotgun (small radius)
+        if (state.bazookaActive || b.kind === 'missile' || state.shotgunActive) {
+          const splashR = (state.shotgunActive && b.kind !== 'missile') ? 28 : 60;
+          // Collect indices then remove from back to front
+          const hitIdx = getExplosionHitIndices(state.patties, a.x, a.y, splashR);
+          hitIdx.sort((x,y)=>y-x);
+          for (const idx of hitIdx){
+            if (idx >= 0 && idx < state.patties.length) {
+              state.patties.splice(idx,1);
+              state.score += 50;
+            }
+          }
+          // explosion visual
+          if (!(state as any).explosions) (state as any).explosions = [];
+          state.explosions.push({ x: a.x, y: a.y, life: 0, duration: 0.35 });
+          playExplosion();
+        }
         break;
       }
     }
@@ -158,9 +239,7 @@ function update(dt: number, nowMs: number){
 
   // level-up
   if (!state.gameOver && shouldLevelUp(state.score, state.scoreAtLevelStart)){
-    state.level += 1;
-    state.scoreAtLevelStart = state.score;
-    state.levelUpTimer = 2.0;
+    applyLevelUp(state);
   }
 
   // decay level-up overlay timer using dt
@@ -182,16 +261,57 @@ function update(dt: number, nowMs: number){
           if (p.hits >= p.maxHits){
             state.gameOver = true;
             controls.left = controls.right = controls.fire = false;
+            // Trigger a big cartoon death explosion once
+            if (!state.deathExplosionPlayed) {
+              state.deathExplosionPlayed = true;
+              state.explosions.push({ x: p.x, y: p.y, life: 0, duration: 0.6 });
+              // Add a few offset puffs for extra oomph
+              state.explosions.push({ x: p.x+18, y: p.y-10, life: 0, duration: 0.5 });
+              state.explosions.push({ x: p.x-16, y: p.y+6, life: 0, duration: 0.5 });
+              playExplosion();
+            }
           }
         }
         break;
       }
     }
   }
+
+  // upgrades movement and pickup
+  for (const u of state.upgrades) u.y += u.vy * dt;
+  state.upgrades = state.upgrades.filter(u => u.y < h + 40);
+  // pickup by bullet or player (safe helper)
+  processUpgradePickups(state);
+
+  // bazooka/shotgun timers and shared cooldown
+  if (state.bazookaActive) {
+    state.bazookaTimer -= dt;
+    if (state.bazookaTimer <= 0) { state.bazookaActive = false; state.bazookaTimer = 0; state.bazookaCooldown = 10; }
+  }
+  if (state.shotgunActive) {
+    state.shotgunTimer -= dt;
+    if (state.shotgunTimer <= 0) { state.shotgunActive = false; state.shotgunTimer = 0; state.bazookaCooldown = 10; }
+  }
+  if (!state.bazookaActive && !state.shotgunActive && state.bazookaCooldown > 0) {
+    state.bazookaCooldown -= dt;
+    if (state.bazookaCooldown < 0) state.bazookaCooldown = 0;
+  }
+
+  // explosions life update
+  if ((state as any).explosions) {
+    for (let i = state.explosions.length - 1; i >= 0; i--) {
+      const ex = state.explosions[i];
+      ex.life += dt;
+      if (ex.life >= ex.duration) state.explosions.splice(i,1);
+    }
+    if (state.explosions.length > 32) state.explosions.splice(0, state.explosions.length - 32);
+  }
 }
 
 function draw(nowMs: number){
   const w = state.w(), h = state.h();
+  // Toggle external pause link visibility
+  if (pauseLinkEl) pauseLinkEl.style.display = (state.paused && !state.gameOver) ? 'block' : 'none';
   // bg
   const g = ctx.createLinearGradient(0,0,0,h);
   g.addColorStop(0,'#0e6ab0');
@@ -215,36 +335,119 @@ function draw(nowMs: number){
     ctx.drawImage(pattyImg, a.x-drawW/2, a.y-drawH/2, drawW, drawH);
   }
 
-  // player
-  const pw = state.player.w, ph = state.player.h;
-  ctx.save();
-  if (state.player.invuln > 0 && !state.gameOver) {
-    const blink = (Math.floor((nowMs||0) * 0.02) % 2) === 0;
-    ctx.globalAlpha = blink ? 0.45 : 1;
-  }
-  ctx.drawImage(playerImg, state.player.x - pw/2, state.player.y - ph/2, pw, ph);
-  if (state.player.hits > 0) {
-    const damageAlpha = Math.min(0.6, state.player.hits / state.player.maxHits * 0.6);
-    ctx.fillStyle = `rgba(255, 59, 48, ${damageAlpha.toFixed(3)})`;
-    ctx.fillRect(state.player.x - pw/2, state.player.y - ph/2, pw, ph);
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = 2;
-    for (let i=0; i<state.player.hits; i++) {
-      const t = i / state.player.maxHits;
-      const x1 = state.player.x - pw/2 + (pw * (0.2 + t * 0.6));
-      const y1 = state.player.y - ph/2 + (ph * (0.2 + (1-t) * 0.6));
-      const x2 = state.player.x - pw/2 + (pw * (0.8 - t * 0.4));
-      const y2 = state.player.y - ph/2 + (ph * (0.2 + t * 0.6));
-      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  // player (hidden on game over so only explosion is seen)
+  if (!state.gameOver) {
+    const pw = state.player.w, ph = state.player.h;
+    ctx.save();
+    if (state.player.invuln > 0) {
+      const blink = (Math.floor((nowMs||0) * 0.02) % 2) === 0;
+      ctx.globalAlpha = blink ? 0.45 : 1;
     }
+    ctx.drawImage(playerImg, state.player.x - pw/2, state.player.y - ph/2, pw, ph);
+    if (state.player.hits > 0) {
+      const damageAlpha = Math.min(0.6, state.player.hits / state.player.maxHits * 0.6);
+      ctx.fillStyle = `rgba(255, 59, 48, ${damageAlpha.toFixed(3)})`;
+      ctx.fillRect(state.player.x - pw/2, state.player.y - ph/2, pw, ph);
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 2;
+      for (let i=0; i<state.player.hits; i++) {
+        const t = i / state.player.maxHits;
+        const x1 = state.player.x - pw/2 + (pw * (0.2 + t * 0.6));
+        const y1 = state.player.y - ph/2 + (ph * (0.2 + (1-t) * 0.6));
+        const x2 = state.player.x - pw/2 + (pw * (0.8 - t * 0.4));
+        const y2 = state.player.y - ph/2 + (ph * (0.2 + t * 0.6));
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
-  ctx.restore();
 
   // bullets
   for (const b of state.bullets){
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
-    ctx.fillStyle = '#b3ecff'; ctx.fill();
-    ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+    if (b.kind === 'missile') {
+      // trail
+      if (b.trail) {
+        ctx.save();
+        for (const seg of b.trail){
+          const alpha = Math.max(0, Math.min(1, seg.life / 0.6));
+          // smoke
+          ctx.globalAlpha = alpha * 0.4;
+          ctx.fillStyle = '#bbbbbb';
+          ctx.beginPath(); ctx.arc(seg.x, seg.y, 5, 0, Math.PI*2); ctx.fill();
+          // fire core
+          ctx.globalAlpha = alpha * 0.6;
+          ctx.fillStyle = '#ff7f00';
+          ctx.beginPath(); ctx.arc(seg.x, seg.y+2, 2.5, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.restore();
+      }
+      // missile body oriented upward (no rotation)
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.fillStyle = '#444';
+      ctx.fillRect(-3, -12, 6, 24);
+      ctx.fillStyle = '#d22';
+      ctx.fillRect(-4, 8, 8, 4);
+      ctx.restore();
+    } else {
+      // bubble bullet
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+      ctx.fillStyle = '#b3ecff'; ctx.fill();
+      ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+    }
+  }
+
+  // explosions (big cartoon clouds + shockwave)
+  for (const ex of state.explosions) {
+    const t = Math.min(1, ex.life / ex.duration); // 0..1
+    const alpha = 1 - t;
+    const baseR = 10 + t * 36;
+    // Flash at start
+    if (t < 0.12) {
+      ctx.save();
+      ctx.globalAlpha = 0.9 * (0.12 - t) / 0.12;
+      ctx.fillStyle = 'white';
+      ctx.beginPath(); ctx.arc(ex.x, ex.y, 18, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+
+    // Puffs around center
+    const offsets = [
+      [0, 0], [1.1, 0.15], [-1.1, 0.15], [0.35, -1.05], [-0.35, -1.05], [0.5, 1.1], [-0.5, 1.1], [1.0, -0.8], [-1.0, 0.8]
+    ];
+    ctx.save();
+    ctx.globalAlpha = 0.85 * alpha;
+    for (let i=0;i<offsets.length;i++){
+      const [ox, oy] = offsets[i];
+      const cx = ex.x + ox * (baseR * 0.7);
+      const cy = ex.y + oy * (baseR * 0.7);
+      const r = baseR * (0.6 + (i%4)*0.12);
+      // outer light
+      ctx.fillStyle = '#fff2cc';
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+      // inner orange
+      ctx.globalAlpha = 0.7 * alpha;
+      ctx.fillStyle = '#ffb347';
+      ctx.beginPath(); ctx.arc(cx, cy, r*0.55, 0, Math.PI*2); ctx.fill();
+      // core red
+      ctx.globalAlpha = 0.6 * alpha;
+      ctx.fillStyle = '#ff6b3a';
+      ctx.beginPath(); ctx.arc(cx, cy, r*0.28, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha = 0.85 * alpha;
+    }
+    ctx.restore();
+
+    // Shockwave ring
+    ctx.save();
+    ctx.globalAlpha = 0.9 * alpha;
+    const ringR = baseR * 1.35;
+    const grad = ctx.createRadialGradient(ex.x, ex.y, ringR*0.7, ex.x, ex.y, ringR);
+    grad.addColorStop(0, 'rgba(255,255,255,0.0)');
+    grad.addColorStop(1, 'rgba(255,255,255,0.95)');
+    ctx.strokeStyle = grad as any;
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(ex.x, ex.y, ringR, 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
   }
 
   // HUD: score, level, health
@@ -260,6 +463,72 @@ function draw(nowMs: number){
     ctx.fillStyle = (i < (state.player.maxHits - state.player.hits)) ? '#b3ecff' : 'rgba(255,255,255,0.25)';
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; ctx.stroke();
+  }
+
+  // Upgrades: draw bazooka pickups (bubble with bazooka icon)
+  for (const u of state.upgrades){
+    ctx.save();
+    ctx.beginPath(); ctx.arc(u.x, u.y, u.r, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(179,236,255,0.85)'; ctx.fill();
+    ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.translate(u.x, u.y);
+    if (u.kind === 'bazooka') {
+      // bazooka glyph
+      ctx.rotate( -0.2 );
+      ctx.fillStyle = '#2f2f2f';
+      ctx.fillRect(-6, -3, 18, 6);
+      ctx.fillStyle = '#5a5a5a';
+      ctx.fillRect(-10, -2, 8, 4);
+    } else {
+      // shotgun glyph: rectangle with 5 short barrels
+      ctx.fillStyle = '#2e2e2e';
+      ctx.fillRect(-10, -3, 20, 6);
+      ctx.fillStyle = '#c0c0c0';
+      for (let i=0;i<5;i++){
+        const bx = -10 + i*5 - 10*0.0;
+        ctx.fillRect(bx, -4, 2, 8);
+      }
+    }
+    ctx.restore();
+  }
+
+  // Bazooka timer HUD (top center)
+  if (state.bazookaActive) {
+    const total = 20;
+    const remain = Math.max(0, Math.min(total, state.bazookaTimer));
+    const pct = remain / total;
+    const barW = Math.min(260, w * 0.5), barH = 10;
+    const bx = (w - barW)/2, by = 14;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillRect(bx, by, barW, barH);
+    ctx.fillStyle = '#ff3b30';
+    ctx.fillRect(bx, by, barW * pct, barH);
+    ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, barW, barH);
+    ctx.font = 'bold 12px system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Bazooka ${Math.ceil(remain)}s`, w/2, by + barH + 12);
+    ctx.textAlign = 'start';
+    ctx.restore();
+  } else if ((state as any).bazookaCooldown > 0) {
+    const total = 10;
+    const remain = Math.max(0, Math.min(total, (state as any).bazookaCooldown));
+    const pct = remain / total;
+    const barW = Math.min(260, w * 0.5), barH = 10;
+    const bx = (w - barW)/2, by = 14;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(bx, by, barW, barH);
+    ctx.fillStyle = '#888';
+    ctx.fillRect(bx, by, barW * pct, barH);
+    ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, barW, barH);
+    ctx.font = 'bold 12px system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Cooldown ${Math.ceil(remain)}s`, w/2, by + barH + 12);
+    ctx.textAlign = 'start';
+    ctx.restore();
   }
 
   // level up overlay (render only; timer decays in update)
@@ -294,14 +563,27 @@ function draw(nowMs: number){
   // pause overlay
   if (state.paused && !state.gameOver) {
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(0,0,w,h);
     ctx.fillStyle = 'white';
-    ctx.font = 'bold 28px system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.font = 'bold 32px system-ui, -apple-system, Segoe UI, Roboto';
     ctx.textAlign = 'center';
-    ctx.fillText('Paused', w/2, h/2 - 10);
+    ctx.fillText('Undersea Blaster', w/2, h*0.34);
+    ctx.font = '18px system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillText('Click or tap to start', w/2, h*0.42);
+
+    // basic instructions
     ctx.font = '16px system-ui, -apple-system, Segoe UI, Roboto';
-    ctx.fillText('Click/tap to resume', w/2, h/2 + 20);
+    const lines = [
+      'Move: 844/846 or A/D   •   Shoot: Space/Enter',
+      'Mobile: use on-screen pads',
+    ];
+    // normalize arrow glyphs for display
+    lines[0] = 'Move: ◀/▶ or A/D   •   Shoot: Space/Enter';
+    let y = h * 0.52;
+    for (const line of lines) { ctx.fillText(line, w/2, y); y += 22; }
+
+    // author link is provided as a DOM element (#pause-link) layered above the canvas
     ctx.textAlign = 'start';
     ctx.restore();
   }

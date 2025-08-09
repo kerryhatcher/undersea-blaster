@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { getSpawnIntervalMs, getSpeedScale, shouldLevelUp } from '../src/game/systems/difficulty';
+import { getSpawnIntervalMs, getSpeedScale, shouldLevelUp, applyLevelUp } from '../src/game/systems/difficulty';
+import { createInitialState } from '../src/game/state';
 
 describe('difficulty scaling', () => {
   it('spawn interval decreases with level but not below 300ms', () => {
@@ -19,5 +20,15 @@ describe('difficulty scaling', () => {
     expect(shouldLevelUp(1000, 0)).toBe(true);
     expect(shouldLevelUp(1500, 600)).toBe(false);
     expect(shouldLevelUp(2000, 1000)).toBe(true);
+  });
+
+  it('applyLevelUp heals one hit if damaged', () => {
+    const s = createInitialState(() => 800, () => 600);
+    s.player.hits = 3; // damaged
+    s.score = 1500; s.scoreAtLevelStart = 500;
+    applyLevelUp(s);
+    expect(s.level).toBe(2);
+    expect(s.player.hits).toBe(2);
+    expect(s.levelUpTimer).toBeGreaterThan(0);
   });
 });

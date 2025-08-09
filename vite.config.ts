@@ -34,5 +34,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     reporters: 'default',
+    include: ['test/**/*.test.ts'],
+    exclude: ['tests-e2e/**'],
   },
 });

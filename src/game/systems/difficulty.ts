@@ -10,3 +10,15 @@ export function getSpeedScale(level: number): number {
 export function shouldLevelUp(score: number, scoreAtLevelStart: number): boolean {
   return score - scoreAtLevelStart >= 1000;
 }
+
+// Apply level-up side effects in one place for testability
+import type { GameState } from '../../game/state';
+export function applyLevelUp(state: GameState): void {
+  state.level += 1;
+  state.scoreAtLevelStart = state.score;
+  state.levelUpTimer = 2.0;
+  // Regain one hit point if damaged
+  if (state.player.hits > 0) {
+    state.player.hits = Math.max(0, state.player.hits - 1);
+  }
+}
