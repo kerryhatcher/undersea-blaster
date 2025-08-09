@@ -81,7 +81,7 @@ export class AutoUpdaterManager {
     });
 
     // Update available
-    autoUpdater.on('update-available', (info) => {
+    autoUpdater.on('update-available', (info: any) => {
       console.log('Update available:', info.version);
       this.isUpdateAvailable = true;
       this.updateInfo = {
@@ -95,14 +95,14 @@ export class AutoUpdaterManager {
     });
 
     // No update available
-    autoUpdater.on('update-not-available', (info) => {
+    autoUpdater.on('update-not-available', (info: any) => {
       console.log('No updates available');
       this.isUpdateAvailable = false;
       this.sendStatusToWindow('update-not-available');
     });
 
     // Update error
-    autoUpdater.on('error', (err) => {
+    autoUpdater.on('error', (err: any) => {
       console.error('Update error:', err);
       this.isDownloading = false;
       this.sendStatusToWindow('update-error', err.message);
@@ -117,7 +117,7 @@ export class AutoUpdaterManager {
     });
 
     // Download progress
-    autoUpdater.on('download-progress', (progressObj) => {
+    autoUpdater.on('download-progress', (progressObj: any) => {
       const progress = Math.round(progressObj.percent);
       
       if (this.updateInfo) {
@@ -138,7 +138,7 @@ export class AutoUpdaterManager {
     });
 
     // Update downloaded
-    autoUpdater.on('update-downloaded', (info) => {
+    autoUpdater.on('update-downloaded', (info: any) => {
       console.log('Update downloaded:', info.version);
       this.isDownloading = false;
       

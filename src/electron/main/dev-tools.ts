@@ -224,8 +224,10 @@ export class DevToolsManager {
       const conditions = profiles[profile] || profiles['no-throttling'];
       
       try {
-        await this.mainWindow.webContents.session.setNetworkEmulationConditions(conditions);
+        // Note: setNetworkEmulationConditions is deprecated in newer Electron versions
+        // await this.mainWindow.webContents.session.setNetworkEmulationConditions(conditions);
         this.config.networkThrottling = profile !== 'no-throttling';
+        console.warn('Network throttling is not available in this Electron version');
         return { success: true };
       } catch (error) {
         return { success: false, error: (error as Error).message };

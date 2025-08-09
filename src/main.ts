@@ -8,6 +8,7 @@ import { computeHintBottomOffset } from './game/systems/layout';
 import { shouldRicochet, randomRicochetVelocity } from './game/systems/laser';
 import { installClientLogger } from './dev/client-logger';
 import { installAudioActivation, playGunshot, playMissile, playExplosion, startAmbience, stopAmbience, playImpact } from './game/audio';
+import { createGameAssets } from './game/assets';
 import { computeUpgradeHud } from './game/hud';
 
 installClientLogger();
@@ -37,45 +38,9 @@ resize();
 installAudioActivation(canvas);
 startAmbience();
 
-// SVG assets (define before using)
-function svgToImage(svg: string) {
-  const img = new Image();
-  img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
-  return img;
-}
-
-const svgSponge = `<?xml version='1.0'?>
-  <svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'>
-    <defs>
-      <radialGradient id='g' cx='50%' cy='40%' r='70%'>
-        <stop offset='0%' stop-color='#ffd94d'/>
-        <stop offset='100%' stop-color='#f2b800'/>
-      </radialGradient>
-    </defs>
-    <rect x='6' y='10' rx='12' ry='12' width='68' height='58' fill='url(#g)' stroke='#9c7a00' stroke-width='3'/>
-    <g fill='#d89e00' opacity='0.6'>
-      <circle cx='18' cy='24' r='3'/>
-      <circle cx='32' cy='18' r='2.5'/>
-      <circle cx='52' cy='22' r='3'/>
-      <circle cx='44' cy='34' r='2.8'/>
-      <circle cx='22' cy='42' r='3'/>
-      <circle cx='60' cy='46' r='2.4'/>
-      <circle cx='36' cy='54' r='2.8'/>
-    </g>
-  </svg>`;
-
-const svgPatty = `<?xml version='1.0'?>
-  <svg xmlns='http://www.w3.org/2000/svg' width='72' height='56' viewBox='0 0 72 56'>
-    <g>
-      <ellipse cx='36' cy='16' rx='32' ry='14' fill='#f9c46b' stroke='#b67a2b' stroke-width='3'/>
-      <rect x='8' y='24' width='56' height='10' rx='5' fill='#6d3b19'/>
-      <ellipse cx='36' cy='40' rx='32' ry='12' fill='#eaa84f' stroke='#a36724' stroke-width='3'/>
-      <path d='M10 28 Q 20 35 30 28 T 62 28' stroke='#3a8f2e' stroke-width='6' fill='none'/>
-    </g>
-  </svg>`;
-
-const playerImg = svgToImage(svgSponge);
-const pattyImg  = svgToImage(svgPatty);
+// Load game assets from shared module
+const assets = createGameAssets();
+const { playerImg, pattyImg } = assets;
 
 const state: GameState = createInitialState(() => canvas.clientWidth, () => canvas.clientHeight);
 resetPlayer(state);

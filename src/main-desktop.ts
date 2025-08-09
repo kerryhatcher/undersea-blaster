@@ -8,9 +8,34 @@ import { getSpawnIntervalMs, getSpeedScale, shouldLevelUp, applyLevelUp } from '
 import { circlesOverlap, approximatePlayerRadius } from './game/systems/collision';
 import { nextUpgradeScore, shouldSpawnUpgrade, getExplosionHitIndices, processUpgradePickups } from './game/systems/upgrades';
 import { installClientLogger } from './dev/client-logger';
-import { installAudioActivation, playGunshot, playMissile, playExplosion, startAmbience, stopAmbience } from './game/audio';
+import { 
+  installAudioActivation, 
+  playGunshot, 
+  playMissile, 
+  playExplosion, 
+  playShotgun,
+  playLaser,
+  playHit,
+  playPickup,
+  playLevelUp,
+  startAmbience, 
+  stopAmbience 
+} from './game/audio';
+import { updateGameLogic } from './game/core-update';
+import type { UpdateContext, GameAudio, PlatformInfo } from './game/types';
 import { desktopIntegration, isElectron } from './game/desktop-integration';
 import { InputManager } from './game/input-manager';
+import { createGameAssets } from './game/assets';
+import { 
+  renderBullets, 
+  renderExplosions, 
+  renderUpgrades,
+  renderBackground,
+  renderBackgroundBubbles,
+  renderHealthHUD,
+  renderScoreHUD,
+  renderWeaponHUD
+} from './game/render-helpers';
 
 // Install client logger
 installClientLogger();
@@ -43,45 +68,9 @@ resize();
 installAudioActivation(canvas);
 startAmbience();
 
-// SVG assets
-function svgToImage(svg: string) {
-  const img = new Image();
-  img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
-  return img;
-}
-
-const svgSponge = `<?xml version='1.0'?>
-  <svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'>
-    <defs>
-      <radialGradient id='g' cx='50%' cy='40%' r='70%'>
-        <stop offset='0%' stop-color='#ffd94d'/>
-        <stop offset='100%' stop-color='#f2b800'/>
-      </radialGradient>
-    </defs>
-    <rect x='6' y='10' rx='12' ry='12' width='68' height='58' fill='url(#g)' stroke='#9c7a00' stroke-width='3'/>
-    <g fill='#d89e00' opacity='0.6'>
-      <circle cx='18' cy='24' r='3'/>
-      <circle cx='32' cy='18' r='2.5'/>
-      <circle cx='52' cy='22' r='3'/>
-      <circle cx='44' cy='34' r='2.8'/>
-      <circle cx='22' cy='42' r='3'/>
-      <circle cx='60' cy='46' r='2.4'/>
-      <circle cx='36' cy='54' r='2.8'/>
-    </g>
-  </svg>`;
-
-const svgPatty = `<?xml version='1.0'?>
-  <svg xmlns='http://www.w3.org/2000/svg' width='72' height='56' viewBox='0 0 72 56'>
-    <g>
-      <ellipse cx='36' cy='16' rx='32' ry='14' fill='#f9c46b' stroke='#b67a2b' stroke-width='3'/>
-      <rect x='8' y='24' width='56' height='10' rx='5' fill='#6d3b19'/>
-      <ellipse cx='36' cy='40' rx='32' ry='12' fill='#eaa84f' stroke='#a36724' stroke-width='3'/>
-      <path d='M10 28 Q 20 35 30 28 T 62 28' stroke='#3a8f2e' stroke-width='6' fill='none'/>
-    </g>
-  </svg>`;
-
-const playerImg = svgToImage(svgSponge);
-const pattyImg  = svgToImage(svgPatty);
+// Load game assets from shared module
+const assets = createGameAssets();
+const { playerImg, pattyImg } = assets;
 
 // Initialize game state
 const state: GameState = createInitialState(() => canvas.clientWidth, () => canvas.clientHeight);
@@ -156,270 +145,117 @@ function update(dt: number, now: number){
   // Update previous input state
   inputManager.updatePreviousState();
   
-  // Skip update if paused
-  if (state.paused) return;
+  // Create platform info
+  const platformInfo: PlatformInfo = {
+    width: canvas.clientWidth,
+    height: canvas.clientHeight,
+    isMobile: false,
+    isDesktop: true
+  };
   
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
+  // Create update context
+  const updateContext: UpdateContext = {
+    dt,
+    controls,
+    platform: platformInfo,
+    timestamp: now
+  };
   
-  // Player movement
-  const p = state;
-  if (!state.gameOver) {
-    if (controls.left && !controls.right) p.playerX -= p.speed * dt;
-    if (controls.right && !controls.left) p.playerX += p.speed * dt;
-  }
-  p.playerX = Math.max(28, Math.min(w-28, p.playerX));
+  // Create audio interface
+  const gameAudio: GameAudio = {
+    playGunshot,
+    playMissile: (index: number) => playMissile(),
+    playExplosion,
+    playShotgun,
+    playLaser,
+    playHit,
+    playPickup,
+    playLevelUp,
+    playGameOver: playExplosion
+  };
   
-  // Fire bullets
-  state._cooldown -= dt;
-  if (!state.gameOver) {
-    if (controls.fire && state._cooldown <= 0){
-      if (state.bazookaActive) {
-        state._cooldown = 0.4; // fire slower
-        state.bullets.push(
-          { x:p.playerX-4, y:p.playerY-10, vx:0, vy:-500 },
-          { x:p.playerX+4, y:p.playerY-10, vx:0, vy:-500 }
-        );
-        playMissile();
-      } else {
-        state._cooldown = 0.2;
-        state.bullets.push({ x:p.playerX, y:p.playerY-10, vx:0, vy:-450 });
-        playGunshot();
-      }
-    }
-  }
+  // Handle game over state change
+  const wasGameOver = state.gameOver;
   
-  // Update bullets
-  for (let i = state.bullets.length - 1; i >= 0; i--){
-    const b = state.bullets[i];
-    b.y += b.vy * dt;
-    b.x += b.vx * dt;
-    if (b.y < -20 || b.x < -20 || b.x > w + 20){
-      state.bullets.splice(i, 1);
-    }
-  }
+  // Use shared core update logic
+  updateGameLogic(state, updateContext, gameAudio);
   
-  // Spawn enemies
-  state._enemyTimer -= dt;
-  if (state._enemyTimer <= 0 && state.enemies.length < 12 && !state.gameOver){
-    const spawnMs = getSpawnIntervalMs(state.level, state.score);
-    state._enemyTimer = spawnMs / 1000;
-    
-    const startX = 20 + Math.random() * (w - 40);
-    const speedScale = getSpeedScale(state.level, state.score);
-    const vx = (Math.random() - 0.5) * 25 * speedScale;
-    const vy = (30 + Math.random() * 40) * speedScale;
-    const radius = 15 + Math.random() * 10;
-    
-    state.enemies.push({ x:startX, y:-30, vx, vy, radius, health:1 });
-  }
-  
-  // Update enemies
-  for (let i = state.enemies.length - 1; i >= 0; i--){
-    const e = state.enemies[i];
-    e.x += e.vx * dt;
-    e.y += e.vy * dt;
-    
-    if (e.x - e.radius < 0 || e.x + e.radius > w){
-      e.vx = -e.vx;
-      e.x = Math.max(e.radius, Math.min(w - e.radius, e.x));
-    }
-    
-    if (e.y > h + 30){
-      state.enemies.splice(i, 1);
-    }
-  }
-  
-  // Collision detection
-  const playerRadius = approximatePlayerRadius();
-  
-  // Bullet-enemy collisions
-  for (let i = state.bullets.length - 1; i >= 0; i--){
-    const b = state.bullets[i];
-    for (let j = state.enemies.length - 1; j >= 0; j--){
-      const e = state.enemies[j];
-      if (circlesOverlap(b.x, b.y, 3, e.x, e.y, e.radius)){
-        e.health--;
-        state.bullets.splice(i, 1);
-        
-        if (e.health <= 0){
-          state.score += 10;
-          state.enemies.splice(j, 1);
-          state.explosions.push({ x:e.x, y:e.y, age:0, radius:e.radius*2.5 });
-          playExplosion();
-          
-          // Check for chain explosions
-          const hitIndices = getExplosionHitIndices(e.x, e.y, e.radius*2.5, state.enemies);
-          for (let k = hitIndices.length - 1; k >= 0; k--){
-            const hitEnemy = state.enemies[hitIndices[k]];
-            state.score += 5;
-            state.explosions.push({ x:hitEnemy.x, y:hitEnemy.y, age:0, radius:hitEnemy.radius*2 });
-            state.enemies.splice(hitIndices[k], 1);
-          }
-        }
-        break;
-      }
-    }
-  }
-  
-  // Player-enemy collisions
-  if (!state.gameOver && state.invulnTimer <= 0){
-    for (const e of state.enemies){
-      if (circlesOverlap(p.playerX, p.playerY, playerRadius, e.x, e.y, e.radius)){
-        p.hits++;
-        state.invulnTimer = 1.5;
-        state.explosions.push({ x:p.playerX, y:p.playerY, age:0, radius:30 });
-        playExplosion();
-        
-        if (p.hits >= p.maxHits){
-          state.gameOver = true;
-          inputManager.reset();
-          
-          // Death explosion
-          if (!state.deathExplosionPlayed) {
-            state.explosions.push({ x:p.playerX, y:p.playerY, age:0, radius:100 });
-            state.deathExplosionPlayed = true;
-            
-            // Check for high score
-            if (isElectron() && state.score > 0) {
-              // In a real implementation, show a dialog to enter name
-              desktopIntegration.saveHighScore(state.score, 'Player');
-            }
-          }
-        }
-        break;
-      }
-    }
-  }
-  
-  // Update invulnerability
-  if (state.invulnTimer > 0){
-    state.invulnTimer -= dt;
-  }
-  
-  // Update explosions
-  for (let i = state.explosions.length - 1; i >= 0; i--){
-    const ex = state.explosions[i];
-    ex.age += dt;
-    if (ex.age > 0.5){
-      state.explosions.splice(i, 1);
-    }
-  }
-  
-  // Level progression
-  if (shouldLevelUp(state.level, state.score)){
-    applyLevelUp(state);
-  }
-  
-  // Spawn upgrades
-  if (shouldSpawnUpgrade(state.score, state._lastUpgradeScore)){
-    const upgradeX = 30 + Math.random() * (w - 60);
-    state.upgrades.push({ x:upgradeX, y:-20, type:'bazooka', vy:50 });
-    state._lastUpgradeScore = state.score;
-  }
-  
-  // Update upgrades
-  for (let i = state.upgrades.length - 1; i >= 0; i--){
-    const u = state.upgrades[i];
-    u.y += u.vy * dt;
-    
-    if (u.y > h + 30){
-      state.upgrades.splice(i, 1);
-    }
-  }
-  
-  // Pickup upgrades
-  processUpgradePickups(state, p.playerX, p.playerY, playerRadius);
-  
-  // Update bazooka timer
-  if (state.bazookaTimer > 0){
-    state.bazookaTimer -= dt;
-    if (state.bazookaTimer <= 0){
-      state.bazookaActive = false;
+  // Handle new game over state
+  if (!wasGameOver && state.gameOver) {
+    inputManager.reset();
+    if (isElectron() && state.score > 0) {
+      desktopIntegration.saveHighScore(state.score, 'Player');
     }
   }
 }
 
 // Render game
 function render(){
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
+  const nowMs = performance.now();
+  const w = state.w();
+  const h = state.h();
   
-  // Clear canvas
-  ctx.fillStyle = '#062b4f';
-  ctx.fillRect(0, 0, w, h);
+  // Toggle external pause link visibility and position above pads
+  if (pauseLinkEl) {
+    pauseLinkEl.style.display = (state.paused && !state.gameOver) ? 'block' : 'none';
+  }
   
-  // Draw player
-  if (!state.gameOver || state.invulnTimer > 0){
-    const blinking = state.invulnTimer > 0 && Math.floor(state.invulnTimer * 10) % 2 === 0;
-    if (!blinking){
-      ctx.save();
-      ctx.translate(state.playerX, state.playerY);
-      const scale = state.bazookaActive ? 1.2 : 1;
-      ctx.scale(scale, scale);
-      ctx.drawImage(playerImg, -28, -28, 56, 56);
-      ctx.restore();
+  // Background using shared helpers
+  renderBackground(ctx, w, h);
+  renderBackgroundBubbles(ctx, w, h, nowMs);
+  
+  // Draw enemies (patties)
+  for (const a of state.patties){
+    const s = a.size / 72;
+    const drawW = 72 * s;
+    const drawH = 56 * s;
+    ctx.drawImage(pattyImg, a.x - drawW/2, a.y - drawH/2, drawW, drawH);
+  }
+  
+  // Draw player (hidden on game over so only explosion is seen)
+  if (!state.gameOver) {
+    const pw = state.player.w;
+    const ph = state.player.h;
+    ctx.save();
+    if (state.player.invuln > 0) {
+      const blink = (Math.floor(nowMs * 0.02) % 2) === 0;
+      ctx.globalAlpha = blink ? 0.45 : 1;
     }
-  }
-  
-  // Draw enemies
-  for (const e of state.enemies){
-    ctx.save();
-    ctx.translate(e.x, e.y);
-    const scale = e.radius / 20;
-    ctx.scale(scale, scale);
-    ctx.drawImage(pattyImg, -36, -28, 72, 56);
+    ctx.drawImage(playerImg, state.player.x - pw/2, state.player.y - ph/2, pw, ph);
+    if (state.player.hits > 0) {
+      const damageAlpha = Math.min(0.6, state.player.hits / state.player.maxHits * 0.6);
+      ctx.fillStyle = `rgba(255, 59, 48, ${damageAlpha.toFixed(3)})`;
+      ctx.fillRect(state.player.x - pw/2, state.player.y - ph/2, pw, ph);
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < state.player.hits; i++) {
+        const t = i / state.player.maxHits;
+        const x1 = state.player.x - pw/2 + (pw * (0.2 + t * 0.6));
+        const y1 = state.player.y - ph/2 + (ph * (0.2 + (1-t) * 0.6));
+        const x2 = state.player.x - pw/2 + (pw * (0.8 - t * 0.4));
+        const y2 = state.player.y - ph/2 + (ph * (0.2 + t * 0.6));
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
   
-  // Draw bullets
-  ctx.fillStyle = state.bazookaActive ? '#ff6b6b' : '#ffeb3b';
-  for (const b of state.bullets){
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, state.bazookaActive ? 5 : 3, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  // Draw bullets using shared helper
+  renderBullets(ctx, state.bullets);
   
-  // Draw upgrades
-  for (const u of state.upgrades){
-    ctx.fillStyle = '#4caf50';
-    ctx.fillRect(u.x - 10, u.y - 10, 20, 20);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '12px monospace';
-    ctx.fillText('B', u.x - 4, u.y + 4);
-  }
+  // Draw upgrades using shared helper
+  renderUpgrades(ctx, state.upgrades);
   
-  // Draw explosions
-  for (const ex of state.explosions){
-    const progress = ex.age / 0.5;
-    const radius = ex.radius * (1 + progress * 0.5);
-    const alpha = 1 - progress;
-    
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#ffeb3b';
-    ctx.beginPath();
-    ctx.arc(ex.x, ex.y, radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
+  // Draw explosions using shared helper
+  renderExplosions(ctx, state.explosions);
   
-  // Draw UI
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '20px monospace';
-  ctx.fillText(`Score: ${state.score}`, 10, 30);
-  ctx.fillText(`Level: ${state.level}`, 10, 55);
-  
-  // Health
-  const hearts = '❤️'.repeat(Math.max(0, state.maxHits - state.hits));
-  ctx.font = '24px serif';
-  ctx.fillText(hearts, 10, 85);
-  
-  // Bazooka indicator
-  if (state.bazookaActive){
-    ctx.fillStyle = '#4caf50';
-    ctx.fillText(`BAZOOKA: ${Math.ceil(state.bazookaTimer)}s`, 10, 115);
-  }
+  // HUD using shared helpers
+  renderScoreHUD(ctx, state.score, state.level);
+  renderHealthHUD(ctx, w - 12, 22, state.player.maxHits - state.player.hits, state.player.maxHits);
+  renderWeaponHUD(ctx, state, 12, 70);
   
   // Draw on-screen controls for mobile
   const isMobile = 'ontouchstart' in window;

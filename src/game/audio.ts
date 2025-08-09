@@ -199,4 +199,68 @@ function playPlop() {
 
 export function isAudioReady() { return unlocked; }
 
+export function playShotgun() {
+  const ctx = getCtx(); if (!unlocked || !ctx) return;
+  if (sampleBuffers.shotgun?.length) {
+    const src = ctx.createBufferSource();
+    const list = sampleBuffers.shotgun;
+    src.buffer = list[Math.floor(Math.random() * list.length)];
+    const g = ctx.createGain(); g.gain.value = 0.9;
+    src.connect(g).connect(ctx.destination);
+    src.start();
+    return;
+  }
+  // Fallback to multiple gunshots for spread effect
+  for (let i = 0; i < 3; i++) {
+    setTimeout(() => playGunshot(), i * 20);
+  }
+}
+
+export function playLaser(index?: number) {
+  const ctx = getCtx(); if (!unlocked || !ctx) return;
+  // High-pitched zap sound
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  const g = envGain(ctx, 0.08, 0.15, 0.001, 0.05);
+  const t = ctx.currentTime;
+  const baseFreq = 1200 + (index || 0) * 50 % 400; // Vary pitch slightly
+  osc.frequency.setValueAtTime(baseFreq, t);
+  osc.frequency.exponentialRampToValueAtTime(400, t + 0.08);
+  osc.connect(g).connect(ctx.destination);
+  osc.start(); osc.stop(t + 0.1);
+}
+
+export function playHit() {
+  playImpact();
+}
+
+export function playPickup() {
+  const ctx = getCtx(); if (!unlocked || !ctx) return;
+  // Pleasant rising tone for pickup
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  const g = envGain(ctx, 0.2, 0.2, 0.01, 0.15);
+  const t = ctx.currentTime;
+  osc.frequency.setValueAtTime(440, t);
+  osc.frequency.exponentialRampToValueAtTime(880, t + 0.2);
+  osc.connect(g).connect(ctx.destination);
+  osc.start(); osc.stop(t + 0.25);
+}
+
+export function playLevelUp() {
+  const ctx = getCtx(); if (!unlocked || !ctx) return;
+  // Triumphant ascending chord
+  const notes = [261.63, 329.63, 392.00, 523.25]; // C major chord
+  notes.forEach((freq, i) => {
+    setTimeout(() => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      const g = envGain(ctx, 0.3, 0.18, 0.01, 0.25);
+      osc.frequency.value = freq;
+      osc.connect(g).connect(ctx.destination);
+      osc.start(); osc.stop(ctx.currentTime + 0.35);
+    }, i * 50);
+  });
+}
+
 

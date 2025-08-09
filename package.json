@@ -19,6 +19,15 @@
     "e2e:ui": "playwright test --ui",
     "e2e:headed": "playwright test --headed",
     "e2e:install": "playwright install --with-deps",
+    "e2e:run": "./scripts/run-e2e-tests.sh",
+    "e2e:smoke": "./scripts/run-e2e-tests.sh --smoke",
+    "e2e:gameplay": "./scripts/run-e2e-tests.sh --category gameplay",
+    "e2e:controls": "./scripts/run-e2e-tests.sh --category controls",
+    "e2e:visual": "./scripts/run-e2e-tests.sh --category visual",
+    "e2e:visual-update": "./scripts/run-e2e-tests.sh --visual",
+    "e2e:desktop": "./scripts/run-e2e-tests.sh --category desktop",
+    "e2e:cross-platform": "./scripts/run-e2e-tests.sh --category cross-platform",
+    "e2e:debug": "./scripts/run-e2e-tests.sh --debug",
     "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
     "build:win": "npm run build:all && electron-builder --win",
     "build:mac": "npm run build:all && electron-builder --mac",
@@ -46,6 +55,6 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.2.0",
-    "electron-updater": "^6.1.7"
+    "electron-updater": "^6.6.2"
   }
 }

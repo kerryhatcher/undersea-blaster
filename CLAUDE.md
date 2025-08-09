@@ -2,6 +2,28 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git Commit Standards
+
+**IMPORTANT**: Always follow the [Conventional Commits](https://www.conventionalcommits.org/) standard when creating commit messages.
+
+Format: `<type>[optional scope]: <description>`
+
+Common types:
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style changes (formatting, etc.)
+- `refactor`: Code refactoring
+- `test`: Adding or updating tests
+- `chore`: Maintenance tasks
+- `perf`: Performance improvements
+
+Examples:
+- `feat(game): add power-up system`
+- `fix(collision): correct enemy hitbox detection`
+- `docs: update README with new commands`
+- `chore: upgrade dependencies`
+
 ## Commands
 
 ### Development
