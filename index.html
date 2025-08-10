@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Undersea Blaster - Branch Previews</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; background: #1a1a2e; color: #eee; }
+    h1 { color: #e94560; }
+    .preview-link { 
+      display: block; 
+      margin: 10px 0; 
+      padding: 15px; 
+      background: #0f3460; 
+      color: #e94560; 
+      text-decoration: none; 
+      border-radius: 5px;
+      font-weight: bold;
+    }
+    .preview-link:hover { background: #16213e; }
+  </style>
+</head>
+<body>
+  <h1>🌊 Undersea Blaster - Branch Previews</h1>
+  <p>Available branch previews:</p>
+  <div id="previews"></div>
+  <p><a href="https://github.com/kerryhatcher/undersea-blaster">← Back to GitHub</a></p>
+  <script>
+    // Dynamically list available previews
+    fetch('./preview/')
+      .then(response => response.text())
+      .then(html => {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const links = Array.from(doc.querySelectorAll('a'))
+          .filter(a => a.href.includes('/preview/') && !a.href.endsWith('../'))
+          .map(a => a.textContent.replace('/', ''));
+        
+        const previewsDiv = document.getElementById('previews');
+        links.forEach(branch => {
+          const link = document.createElement('a');
+          link.href = `preview/${branch}/`;
+          link.className = 'preview-link';
+          link.textContent = `🚀 ${branch}`;
+          previewsDiv.appendChild(link);
+        });
+      })
+      .catch(() => {
+        // Fallback: at least show current branch
+        const previewsDiv = document.getElementById('previews');
+        const link = document.createElement('a');
+        link.href = 'preview/copilot/fix-7/';
+        link.className = 'preview-link';
+        link.textContent = '🚀 copilot/fix-7';
+        previewsDiv.appendChild(link);
+      });
+  </script>
+</body>
+</html>

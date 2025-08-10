@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/undersea-blaster/preview/copilot/fix-7/sw.js', { scope: '/undersea-blaster/preview/copilot/fix-7/' })})}
