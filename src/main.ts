@@ -78,7 +78,8 @@ const playerImg = svgToImage(svgSponge);
 const pattyImg  = svgToImage(svgPatty);
 
 const state: GameState = createInitialState(() => canvas.clientWidth, () => canvas.clientHeight);
-resetPlayer(state);
+const initialSafeArea = getSafeAreaInsets();
+resetPlayer(state, initialSafeArea.bottom);
 // Expose minimal test handle in dev for Playwright-driven scenarios
 if ((import.meta as any).env?.DEV) {
   (window as any).__game = { state };
@@ -91,7 +92,11 @@ addPointerListeners(canvas);
 const KEYMAP: Record<string, 'left'|'right'> = { ArrowLeft:'left', ArrowRight:'right', KeyA:'left', KeyD:'right' };
 function handleKeyDown(e: KeyboardEvent){
   if (state.gameOver) {
-    if (e.code === 'KeyR' || e.code === 'Space' || e.key === 'Enter') { hardReset(state); e.preventDefault(); }
+    if (e.code === 'KeyR' || e.code === 'Space' || e.key === 'Enter') { 
+      const sa = getSafeAreaInsets();
+      hardReset(state, sa.bottom); 
+      e.preventDefault(); 
+    }
     return;
   }
   if (document.activeElement !== canvas) return;
@@ -774,7 +779,11 @@ function addPointerListeners(el: HTMLElement){
   let dragOffsetX = 0;
   const clearControls = () => { controls.left = controls.right = controls.fire = false; };
   function onDown(e: any){
-    if (state.gameOver) { hardReset(state); return; }
+    if (state.gameOver) { 
+      const sa = getSafeAreaInsets();
+      hardReset(state, sa.bottom); 
+      return; 
+    }
     if (state.paused) { state.paused = false; }
     mouseHeld = true;
     const list = e.touches || e.changedTouches || [e];

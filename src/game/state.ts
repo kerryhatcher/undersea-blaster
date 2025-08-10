@@ -114,12 +114,15 @@ export function createInitialState(getW: () => number, getH: () => number): Game
   };
 }
 
-export function resetPlayer(state: GameState) {
+export function resetPlayer(state: GameState, safeAreaBottom = 0) {
   state.player.x = state.w() * 0.5;
-  state.player.y = state.h() * 0.78;
+  // Adjust player Y position based on safe area insets to avoid browser controls
+  const baseY = state.h() * 0.78;
+  const adjustedY = Math.max(baseY - safeAreaBottom * 0.8, state.h() * 0.65);
+  state.player.y = adjustedY;
 }
 
-export function hardReset(state: GameState) {
+export function hardReset(state: GameState, safeAreaBottom = 0) {
   state.bullets.length = 0;
   state.patties.length = 0;
   state.score = 0;
@@ -147,5 +150,5 @@ export function hardReset(state: GameState) {
   state.impacts.length = 0;
   state.missileSoundIndex = 0;
   state.laserShotIndex = 0;
-  resetPlayer(state);
+  resetPlayer(state, safeAreaBottom);
 }
