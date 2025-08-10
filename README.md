@@ -129,3 +129,20 @@ Enjoy the game! 🐠
 Notes:
 - No installation is required; the AppImage is a single portable file.
 - If double-clicking does nothing, right-click → Properties → Allow executing file as program, or use the `chmod +x` command above.
+
+## 🌐 Play in your browser (PWA)
+
+- Play now: [Undersea Blaster on the web](https://kerryhatcher.github.io/undersea-blaster/)
+- Works offline after the first load (PWA). Updates are applied the next time you open the game.
+
+### Android (Chrome)
+- Open the link above in Chrome
+- Tap the menu (⋮) → Install app (or Add to Home screen)
+- Confirm Install
+- Launch from your home screen like a native app
+
+### iPhone/iPad (Safari)
+- Open the link above in Safari (required by iOS for PWA install)
+- Tap the Share button → Add to Home Screen
+- Tap Add
+- Launch from your home screen; it runs full-screen
