@@ -96,6 +96,11 @@ Enjoy the game! 🐠
 
 ## 🐧 Install and Run on Linux (AppImage)
 
+- Download and run the latest release (one-liner):
+  ```bash
+  bash -c "curl -fsSL https://raw.githubusercontent.com/kerryhatcher/undersea-blaster/main/scripts/get-undersea-blaster.sh | bash"
+  ```
+
 - Build the desktop AppImage locally:
   ```bash
   npm run dist:appimage
