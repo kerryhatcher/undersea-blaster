@@ -28,6 +28,14 @@ jobs:
           BASE_PATH: ./
         run: npm run -s dist:appimage
 
+      - name: Prepare latest alias
+        run: |
+          set -euo pipefail
+          arch=$(uname -m)
+          appimage=$(ls -1 dist-app/*.AppImage | head -n1)
+          latest_name="undersea-blaster-latest-${arch}.AppImage"
+          cp -f "$appimage" "dist-app/${latest_name}"
+
       - name: Upload AppImage to GitHub Release
         uses: softprops/action-gh-release@v2
         with:

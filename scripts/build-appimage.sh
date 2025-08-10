@@ -17,9 +17,14 @@ if [[ ! -d node_modules ]]; then
   npm ci --no-audit --no-fund
 fi
 
-# Compute version string
-if git rev-parse --git-dir >/dev/null 2>&1; then
-  VERSION_STRING="$(git describe --tags --dirty --always 2>/dev/null || node -p "require('./package.json').version")"
+# Compute version string; prefer CI tag if available
+if [[ -n "${GITHUB_REF_NAME:-}" && "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+  VERSION_STRING="${GITHUB_REF_NAME#v}"
+elif git rev-parse --git-dir >/dev/null 2>&1; then
+  VERSION_STRING="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
+  if [[ -z "$VERSION_STRING" ]]; then
+    VERSION_STRING="$(node -p "require('./package.json').version")"
+  fi
 else
   VERSION_STRING="$(node -p "require('./package.json').version + '-local-' + (new Date().toISOString().slice(0,10))")"
 fi
@@ -35,7 +40,7 @@ npm run -s build
 
 echo "[build] Packaging Electron AppImage..."
 # Prevent electron-builder from attempting to publish during CI or when tags are present
-npx --yes electron-builder --linux AppImage --publish never | cat
+npx --yes electron-builder --linux AppImage --publish never --config.extraMetadata.version="$VERSION_STRING" | cat
 
 echo "[build] Done. Artifacts in dist-app/"
 ls -lh dist-app | cat
