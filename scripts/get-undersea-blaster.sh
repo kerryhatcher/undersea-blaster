@@ -14,7 +14,7 @@ detect_architecture() {
   uname_arch="$(uname -m)"
   case "$uname_arch" in
     x86_64|amd64)
-      echo "x64"
+      echo "x86_64"
       ;;
     aarch64|arm64)
       echo "arm64"
