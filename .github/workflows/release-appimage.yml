@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-and-release:
-    name: build-and-release (${% raw %}{{ matrix.arch }}{% endraw %})
+    name: build-and-release (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -31,7 +31,7 @@ jobs:
         env:
           ELECTRON_BUILDER_PUBLISH: never
           BASE_PATH: ./
-          TARGET_ARCH: ${% raw %}{{ matrix.arch }}{% endraw %}
+          TARGET_ARCH: ${{ matrix.arch }}
         run: npm run -s dist:appimage
 
       - name: Prepare latest alias
