@@ -7,7 +7,12 @@ on:
 
 jobs:
   build-and-release:
+    name: build-and-release (${% raw %}{{ matrix.arch }}{% endraw %})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
     permissions:
       contents: write
     steps:
@@ -26,6 +31,7 @@ jobs:
         env:
           ELECTRON_BUILDER_PUBLISH: never
           BASE_PATH: ./
+          TARGET_ARCH: ${% raw %}{{ matrix.arch }}{% endraw %}
         run: npm run -s dist:appimage
 
       - name: Prepare latest alias
@@ -36,13 +42,17 @@ jobs:
           arch=$(echo "$base" | sed -E 's/.*-([^-]+)\.(AppImage)$/\1/')
           latest_name="undersea-blaster-latest-${arch}.AppImage"
           cp -f "$appimage" "dist-app/${latest_name}"
+          # Prepare architecture-specific update YAML to avoid release asset name collision
+          if [[ -f dist-app/latest-linux.yml ]]; then
+            cp -f dist-app/latest-linux.yml "dist-app/latest-linux-${arch}.yml"
+          fi
 
       - name: Upload AppImage to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist-app/*.AppImage
-            dist-app/latest-linux.yml
+            dist-app/latest-linux-*.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

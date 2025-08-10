@@ -40,7 +40,21 @@ npm run -s build
 
 echo "[build] Packaging Electron AppImage..."
 # Prevent electron-builder from attempting to publish during CI or when tags are present
-npx --yes electron-builder --linux AppImage --publish never --config.extraMetadata.version="$VERSION_STRING" | cat
+ARCH_ARGS=""
+case "${TARGET_ARCH:-x64}" in
+  x64)
+    ARCH_ARGS="--x64"
+    ;;
+  arm64)
+    ARCH_ARGS="--arm64"
+    ;;
+  *)
+    echo "[build] Unsupported TARGET_ARCH='${TARGET_ARCH}'. Supported: x64, arm64" >&2
+    exit 1
+    ;;
+esac
+
+npx --yes electron-builder --linux AppImage ${ARCH_ARGS} --publish never --config.extraMetadata.version="$VERSION_STRING" | cat
 
 echo "[build] Done. Artifacts in dist-app/"
 ls -lh dist-app | cat
