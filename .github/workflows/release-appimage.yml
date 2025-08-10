@@ -31,8 +31,9 @@ jobs:
       - name: Prepare latest alias
         run: |
           set -euo pipefail
-          arch=$(uname -m)
           appimage=$(ls -1 dist-app/*.AppImage | head -n1)
+          base=$(basename "$appimage")
+          arch=$(echo "$base" | sed -E 's/.*-([^-]+)\.(AppImage)$/\1/')
           latest_name="undersea-blaster-latest-${arch}.AppImage"
           cp -f "$appimage" "dist-app/${latest_name}"
 
