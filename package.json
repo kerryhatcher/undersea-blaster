@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,14 +13,40 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:headed": "playwright test --headed",
-    "e2e:install": "playwright install --with-deps"
+    "e2e:install": "playwright install --with-deps",
+    "dist:appimage": "bash ./scripts/build-appimage.sh"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.2",
     "jsdom": "^26.1.0",
+    "electron": "31.4.0",
+    "electron-builder": "^24.13.3",
     "typescript": "^5.5.4",
     "vite": "^5.3.4",
     "vite-plugin-pwa": "^1.0.2",
     "vitest": "^2.0.5"
+  },
+  "build": {
+    "appId": "com.kerryhatcher.underseablaster",
+    "productName": "Undersea Blaster",
+    "files": [
+      "dist/**",
+      "electron/**",
+      {
+        "from": "public/audio",
+        "to": "resources/audio"
+      }
+    ],
+    "asar": true,
+    "directories": {
+      "buildResources": "build",
+      "output": "dist-app"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Game",
+      "icon": "public/icons/icon-512.png",
+      "executableName": "undersea-blaster"
+    }
   }
 }

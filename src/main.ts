@@ -124,11 +124,15 @@ function loop(now: number){
 }
 requestAnimationFrame(loop);
 
-// Register service worker for PWA install
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-  });
+// Register service worker for PWA install (skip in Electron/file://)
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  const isFileProto = location.protocol === 'file:';
+  const isElectron = !!(navigator.userAgent || '').toLowerCase().includes('electron');
+  if (!isFileProto && !isElectron) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
 }
 
 function update(dt: number, nowMs: number){

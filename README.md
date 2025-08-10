@@ -93,3 +93,30 @@ index.html             # Vite entry
 Press `Ctrl+C` in the terminal.
 
 Enjoy the game! 🐠
+
+## 🐧 Install and Run on Linux (AppImage)
+
+- Build the desktop AppImage locally:
+  ```bash
+  npm run dist:appimage
+  ```
+  The AppImage will be created under `dist-app/Undersea Blaster-*.AppImage`.
+
+- Run the game:
+  ```bash
+  chmod +x dist-app/Undersea\ Blaster-*.AppImage
+  ./dist-app/Undersea\ Blaster-*.AppImage
+  ```
+
+- Optional: add to desktop menu (AppImageLauncher recommended):
+  - Install AppImageLauncher (Ubuntu/Debian):
+    ```bash
+    sudo add-apt-repository ppa:appimagelauncher-team/stable -y
+    sudo apt-get update -y
+    sudo apt-get install -y appimagelauncher
+    ```
+  - Then double-click the AppImage. It will offer to integrate it into the menu and create a launcher icon.
+
+Notes:
+- No installation is required; the AppImage is a single portable file.
+- If double-clicking does nothing, right-click → Properties → Allow executing file as program, or use the `chmod +x` command above.

@@ -137,3 +137,14 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Electron builder / AppImage artifacts
+dist-app/
+*.AppImage
+latest-*.yml
+builder-debug.yml
+
+# Playwright artifacts
+playwright-report/
+.playwright/
+test-results/

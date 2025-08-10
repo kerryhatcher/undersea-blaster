@@ -6,13 +6,13 @@ let lastExplosionAt = 0;
 type SampleKey = 'gun_basic' | 'shotgun' | 'missile_launch' | 'explosion_big' | 'explosion_small' | 'amb_bubbles';
 const sampleBuffers: Partial<Record<SampleKey, AudioBuffer[]>> = {};
 const defaultManifest: Record<SampleKey, string[]> = {
-  // Only list formats we actually ship to avoid noisy 404s in production logs
-  gun_basic: [ '/audio/gun_basic_01.ogg' ],
-  shotgun: [ '/audio/shotgun_01.ogg' ],
-  missile_launch: [ '/audio/missile_launch_01.ogg' ],
-  explosion_big: [ '/audio/explosion_big_01.ogg' ],
-  explosion_small: [ '/audio/explosion_small_01.ogg' ],
-  amb_bubbles: [ '/audio/amb_bubbles_01.mp3' ],
+  // Use relative paths so they work with file:// packaging (Electron/AppImage) and Vite dev
+  gun_basic: [ 'audio/gun_basic_01.ogg' ],
+  shotgun: [ 'audio/shotgun_01.ogg' ],
+  missile_launch: [ 'audio/missile_launch_01.ogg' ],
+  explosion_big: [ 'audio/explosion_big_01.ogg' ],
+  explosion_small: [ 'audio/explosion_small_01.ogg' ],
+  amb_bubbles: [ 'audio/amb_bubbles_01.mp3' ],
 };
 
 function getCtx(): AudioContext | null {
