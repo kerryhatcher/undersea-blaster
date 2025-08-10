@@ -2,6 +2,15 @@
 
 A fun underwater shooting game where you control a sponge character shooting bubbles at falling burger patties!
 
+## ▶️ Download and play (Linux AppImage)
+
+- One‑liner (downloads the latest build for your CPU and runs it):
+  ```bash
+  bash -c "curl -fsSL https://raw.githubusercontent.com/kerryhatcher/undersea-blaster/main/scripts/get-undersea-blaster.sh | bash"
+  ```
+  - Works on standard Linux desktops and Steam Deck (x86_64).
+  - If it doesn’t auto‑launch, the file is saved as `./undersea-blaster.AppImage` in your current directory.
+
 ## 🎮 How to Play
 
 - **Desktop**: Use arrow keys or A/D to move, Space/Enter to shoot
@@ -96,21 +105,16 @@ Enjoy the game! 🐠
 
 ## 🐧 Install and Run on Linux (AppImage)
 
-- Download and run the latest release (one-liner):
-  ```bash
-  bash -c "curl -fsSL https://raw.githubusercontent.com/kerryhatcher/undersea-blaster/main/scripts/get-undersea-blaster.sh | bash"
-  ```
-
 - Build the desktop AppImage locally:
   ```bash
   npm run dist:appimage
   ```
-  The AppImage will be created under `dist-app/Undersea Blaster-*.AppImage`.
+  The AppImage will be created under `dist-app/undersea-blaster-<version>-<arch>.AppImage`.
 
-- Run the game:
+- Run the game (local build):
   ```bash
-  chmod +x dist-app/Undersea\ Blaster-*.AppImage
-  ./dist-app/Undersea\ Blaster-*.AppImage
+  chmod +x dist-app/undersea-blaster-*.AppImage
+  ./dist-app/undersea-blaster-*.AppImage
   ```
 
 - Optional: add to desktop menu (AppImageLauncher recommended):
