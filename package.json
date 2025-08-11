@@ -1,6 +1,6 @@
 {
   "name": "undersea-blaster",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -44,7 +44,9 @@
       "output": "dist-app"
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "Game",
       "icon": "public/icons/icon-512.png",
       "executableName": "undersea-blaster"
