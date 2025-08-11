@@ -28,7 +28,8 @@ jobs:
       - name: Run tests
         run: npm test --silent
 
-  build-and-deploy:
+  build-and-deploy-production:
+    name: Deploy production (tags)
     if: startsWith(github.ref, 'refs/tags/')
     needs: test
     runs-on: ubuntu-latest
@@ -63,5 +64,122 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  build-and-deploy-preview:
+    name: Deploy branch preview
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/'))
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Need write permission for pushing to gh-pages
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Get branch name
+        id: branch-name
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "branch=${{ github.head_ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+      - name: Build for preview
+        env:
+          BASE_PATH: '/undersea-blaster/preview/${{ steps.branch-name.outputs.branch }}/'
+          GITHUB_PAGES: true
+        run: npm run build
+      - name: Deploy preview to gh-pages
+        run: |
+          # Configure git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create or checkout gh-pages branch
+          if git ls-remote --exit-code --heads origin gh-pages; then
+            git fetch origin gh-pages
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+            git rm -rf .
+          fi
+          
+          # Create preview directory structure
+          mkdir -p preview/${{ steps.branch-name.outputs.branch }}
+          cp -r dist/* preview/${{ steps.branch-name.outputs.branch }}/
+          
+          # Create index page if it doesn't exist
+          if [ ! -f index.html ]; then
+            cat > index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Undersea Blaster - Branch Previews</title>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 40px; background: #1a1a2e; color: #eee; }
+              h1 { color: #e94560; }
+              .preview-link { 
+                display: block; 
+                margin: 10px 0; 
+                padding: 15px; 
+                background: #0f3460; 
+                color: #e94560; 
+                text-decoration: none; 
+                border-radius: 5px;
+                font-weight: bold;
+              }
+              .preview-link:hover { background: #16213e; }
+            </style>
+          </head>
+          <body>
+            <h1>🌊 Undersea Blaster - Branch Previews</h1>
+            <p>Available branch previews:</p>
+            <div id="previews"></div>
+            <p><a href="https://github.com/kerryhatcher/undersea-blaster">← Back to GitHub</a></p>
+            <script>
+              // Dynamically list available previews
+              fetch('./preview/')
+                .then(response => response.text())
+                .then(html => {
+                  const parser = new DOMParser();
+                  const doc = parser.parseFromString(html, 'text/html');
+                  const links = Array.from(doc.querySelectorAll('a'))
+                    .filter(a => a.href.includes('/preview/') && !a.href.endsWith('../'))
+                    .map(a => a.textContent.replace('/', ''));
+                  
+                  const previewsDiv = document.getElementById('previews');
+                  links.forEach(branch => {
+                    const link = document.createElement('a');
+                    link.href = `preview/${branch}/`;
+                    link.className = 'preview-link';
+                    link.textContent = `🚀 ${branch}`;
+                    previewsDiv.appendChild(link);
+                  });
+                })
+                .catch(() => {
+                  // Fallback: at least show current branch
+                  const previewsDiv = document.getElementById('previews');
+                  const link = document.createElement('a');
+                  link.href = 'preview/${{ steps.branch-name.outputs.branch }}/';
+                  link.className = 'preview-link';
+                  link.textContent = '🚀 ${{ steps.branch-name.outputs.branch }}';
+                  previewsDiv.appendChild(link);
+                });
+            </script>
+          </body>
+          </html>
+          EOF
+          fi
+          
+          # Add and commit
+          git add .
+          git commit -m "Deploy preview for ${{ steps.branch-name.outputs.branch }}" || echo "No changes to commit"
+          git push origin gh-pages
 
 

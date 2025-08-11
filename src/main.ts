@@ -643,12 +643,13 @@ function draw(nowMs: number){
   }
 
   // HUD: score, level, health
+  const saHud = getSafeAreaInsets();
   ctx.fillStyle = 'white';
   ctx.font = 'bold 24px system-ui, -apple-system, Segoe UI, Roboto';
-  ctx.fillText(String(state.score), 12, 34);
+  ctx.fillText(String(state.score), 12, 34 + saHud.top);
   ctx.font = 'bold 18px system-ui, -apple-system, Segoe UI, Roboto';
-  ctx.fillText(`Lv ${state.level}`, 12, 56);
-  const hpX = w - 12, hpY = 22, r = 6;
+  ctx.fillText(`Lv ${state.level}`, 12, 56 + saHud.top);
+  const hpX = w - 12, hpY = 22 + saHud.top, r = 6;
   for (let i=0;i<state.player.maxHits;i++){
     ctx.beginPath();
     ctx.arc(hpX - i*18, hpY, r, 0, Math.PI*2);
@@ -700,7 +701,7 @@ function draw(nowMs: number){
     const hud = computeUpgradeHud(state);
     if (hud.mode !== 'none') {
       const barW = Math.min(260, w * 0.5), barH = 10;
-      const bx = (w - barW)/2, by = 14;
+      const bx = (w - barW)/2, by = 14 + saHud.top;
       ctx.save();
       ctx.fillStyle = hud.mode === 'active' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.2)';
       ctx.fillRect(bx, by, barW, barH);
