@@ -30,8 +30,10 @@ A fun underwater shooting game where you control a sponge character shooting bub
 
 ## 🎮 How to Play
 
-- **Desktop**: Use arrow keys or A/D to move, Space/Enter to shoot
-- **Mobile**: Use the on-screen touch controls
+- **Desktop**: Arrows or A/D to move horizontally; Up/Down or W/S for vertical.
+- **Fire**: Space/Enter (or Shift/J/K — recommended with Arrow keys on some keyboards).
+- **Pause**: Esc or P.
+- **Mobile**: Tap and drag to move; tap/hold to fire.
 - **Goal**: Shoot the falling burger patties to score points!
 
 ## 🚀 Run (Vite + TypeScript)
@@ -106,7 +108,8 @@ index.html             # Vite entry
 - Score: +50 per patty destroyed
 - Levels: +1 level every +1000 pts (since last level start)
   - Faster spawn (min 300ms), faster patties (up to 3x) per level
-- Controls: Arrows/A-D to move, Space/Enter to shoot; touch pads on mobile
+- Controls: Arrows/A-D + Up/Down (W/S) for movement. Fire: Space/Enter or Shift/J/K.
+- Note: Some keyboards block Arrow+Space diagonals. Use Shift/J/K with arrows or WASD.
 
 ## 🧪 Testing Strategy
 

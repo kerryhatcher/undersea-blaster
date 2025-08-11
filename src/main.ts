@@ -3,14 +3,19 @@ import { getSpawnIntervalMs, getSpeedScale, shouldLevelUp, applyLevelUp } from '
 import { circlesOverlap, approximatePlayerRadius } from './game/systems/collision';
 import { nextUpgradeScore, shouldSpawnUpgrade, getExplosionHitIndices, processUpgradePickups } from './game/systems/upgrades';
 import { shouldPlayAlternate } from './game/systems/audio';
-import { computePads, shouldStartDrag } from './game/systems/input';
-import { computeHintBottomOffset } from './game/systems/layout';
+import { shouldStartDrag } from './game/systems/input';
 import { shouldRicochet, randomRicochetVelocity } from './game/systems/laser';
+import { computeNextPlayerPosition } from './game/systems/move';
 import { installClientLogger } from './dev/client-logger';
+import { debugLog, debugLogThrottled, isDebug, setDebugEnabled, controlsToString } from './dev/debug';
 import { installAudioActivation, playGunshot, playMissile, playExplosion, startAmbience, stopAmbience, playImpact } from './game/audio';
 import { computeUpgradeHud } from './game/hud';
+import { resizeCanvasAndReflow, clampNumber } from './game/viewport';
+import { defaultKeyConfig, keyConfigToSets, loadKeyConfig, saveKeyConfig, type KeyConfig } from './dev/keymap';
 
 installClientLogger();
+// Enable debug if requested
+try { if (new URLSearchParams(location.search).get('debug') === '1') setDebugEnabled(true); } catch {}
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 // Prevent iOS Safari page scroll on touch when interacting with canvas
@@ -21,19 +26,27 @@ document.addEventListener('touchmove', (e)=> {
 const ctx = canvas.getContext('2d')!;
 const pauseLinkEl = document.getElementById('pause-link') as HTMLAnchorElement | null;
 
+async function tryKeyboardLock() {
+  try {
+    // Optional: capture keys to avoid OS/browser stealing arrows/space
+    await (navigator as any).keyboard?.lock?.(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space']);
+    debugLog('keyboard.lock', 'requested');
+  } catch {}
+}
+function unlockKeyboard() {
+  try { (navigator as any).keyboard?.unlock?.(); debugLog('keyboard.unlock', 'done'); } catch {}
+}
+
 const focusGame = () => canvas.focus({ preventScroll: true });
 setTimeout(focusGame, 0);
 canvas.addEventListener('pointerdown', focusGame);
 canvas.addEventListener('mouseenter', focusGame);
+canvas.addEventListener('pointerdown', tryKeyboardLock);
 
 function resize() {
-  const dpr = Math.max(1, (window.devicePixelRatio || 1));
-  canvas.width  = Math.floor(innerWidth  * dpr);
-  canvas.height = Math.floor(innerHeight * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  resizeCanvasAndReflow(state, canvas, ctx);
+  debugLogThrottled('resize','resize',{ w: canvas.clientWidth, h: canvas.clientHeight, dpr: window.devicePixelRatio });
 }
-addEventListener('resize', resize);
-resize();
 installAudioActivation(canvas);
 startAmbience();
 
@@ -84,11 +97,25 @@ if ((import.meta as any).env?.DEV) {
   (window as any).__game = { state };
 }
 
-const controls = { left:false, right:false, fire:false };
+// Now that state exists, perform initial resize and hook listeners
+addEventListener('resize', resize);
+window.visualViewport?.addEventListener('resize', resize as any);
+resize();
+
+const controls = { left:false, right:false, up:false, down:false, fire:false };
+function snapshotControls(){ return { ...controls }; }
 
 addPointerListeners(canvas);
 
-const KEYMAP: Record<string, 'left'|'right'> = { ArrowLeft:'left', ArrowRight:'right', KeyA:'left', KeyD:'right' };
+let keyConfig: KeyConfig = loadKeyConfig();
+let KEYMAP_SETS = keyConfigToSets(keyConfig);
+function refreshKeymaps(updated?: KeyConfig){
+  if (updated) keyConfig = updated; else keyConfig = loadKeyConfig();
+  KEYMAP_SETS = keyConfigToSets(keyConfig);
+}
+
+let remapMode = false;
+let remapTarget: 'left'|'right'|'up'|'down'|'fire'|null = null;
 function handleKeyDown(e: KeyboardEvent){
   if (state.gameOver) {
     if (e.code === 'KeyR' || e.code === 'Space' || e.key === 'Enter') { hardReset(state); e.preventDefault(); }
@@ -96,22 +123,59 @@ function handleKeyDown(e: KeyboardEvent){
   }
   if (document.activeElement !== canvas) return;
   if ((e as any).repeat) return;
+  // Toggle pause with Escape or P
+  if (e.key === 'Escape' || e.code === 'KeyP') {
+    state.paused = !state.paused;
+    // Clear controls to avoid sticky movement/fire when toggling
+    controls.left = controls.right = controls.up = controls.down = controls.fire = false;
+    e.preventDefault();
+    return;
+  }
+  // Remap UI: only while paused
+  if (state.paused) {
+    if (e.code === 'KeyM') { remapMode = !remapMode; remapTarget = null; e.preventDefault(); return; }
+    if (remapMode) {
+      if (!remapTarget) {
+        if (e.code === 'Digit1') { remapTarget = 'left'; e.preventDefault(); return; }
+        if (e.code === 'Digit2') { remapTarget = 'right'; e.preventDefault(); return; }
+        if (e.code === 'Digit3') { remapTarget = 'up'; e.preventDefault(); return; }
+        if (e.code === 'Digit4') { remapTarget = 'down'; e.preventDefault(); return; }
+        if (e.code === 'Digit5') { remapTarget = 'fire'; e.preventDefault(); return; }
+      } else {
+        // Set single-key mapping for the selected action
+        const next: KeyConfig = { ...keyConfig, [remapTarget]: [e.code] } as KeyConfig;
+        saveKeyConfig(next);
+        refreshKeymaps(next);
+        remapTarget = null;
+        e.preventDefault();
+        return;
+      }
+    }
+  }
   // Allow keyboard to unpause
   if (state.paused && (e.code === 'Space' || e.key === 'Enter')) { state.paused = false; e.preventDefault(); return; }
-  if (e.code === 'Space' || e.key === 'Enter') { controls.fire = true; e.preventDefault(); return; }
-  const dir = KEYMAP[e.code];
+  // Fire set from key config
+  if (KEYMAP_SETS.fireSet.has(e.code) || KEYMAP_SETS.fireSet.has(e.key)) {
+    controls.fire = true; e.preventDefault(); return;
+  }
+  const dir = KEYMAP_SETS.movementMap.get(e.code) || KEYMAP_SETS.movementMap.get(e.key);
   if (dir){ (controls as any)[dir] = true; e.preventDefault(); }
+  debugLog('keydown', { code: e.code, controls: snapshotControls(), flags: controlsToString(controls as any) });
 }
 function handleKeyUp(e: KeyboardEvent){
   if (document.activeElement !== canvas) return;
-  if (e.code === 'Space' || e.key === 'Enter') { controls.fire = false; e.preventDefault(); return; }
-  const dir = KEYMAP[e.code];
+  if (KEYMAP_SETS.fireSet.has(e.code) || KEYMAP_SETS.fireSet.has(e.key)) { controls.fire = false; e.preventDefault(); return; }
+  const dir = KEYMAP_SETS.movementMap.get(e.code) || KEYMAP_SETS.movementMap.get(e.key);
   if (dir){ (controls as any)[dir] = false; e.preventDefault(); }
+  debugLog('keyup', { code: e.code, controls: snapshotControls(), flags: controlsToString(controls as any) });
 }
 window.addEventListener('keydown', handleKeyDown);
 window.addEventListener('keyup', handleKeyUp);
-window.addEventListener('blur', ()=>{ controls.left = controls.right = controls.fire = false; state.paused = true; });
-canvas.addEventListener('blur', ()=>{ controls.left = controls.right = controls.fire = false; state.paused = true; });
+window.addEventListener('blur', ()=>{ controls.left = controls.right = controls.up = controls.down = controls.fire = false; state.paused = true; unlockKeyboard(); });
+canvas.addEventListener('blur', ()=>{ controls.left = controls.right = controls.up = controls.down = controls.fire = false; state.paused = true; unlockKeyboard(); });
+document.addEventListener('visibilitychange', ()=>{
+  if (document.hidden) { controls.left = controls.right = controls.up = controls.down = controls.fire = false; unlockKeyboard(); }
+});
 window.addEventListener('focus', ()=>{ /* keep paused, user resumes via input */ });
 
 let last = performance.now();
@@ -146,10 +210,14 @@ function update(dt: number, nowMs: number){
   }
 
   if (!state.gameOver) {
-    if (controls.left && !controls.right) p.x -= p.speed*dt;
-    if (controls.right && !controls.left) p.x += p.speed*dt;
+    const next = computeNextPlayerPosition(p, controls as any, dt, w, h, 28);
+    p.x = next.x; p.y = next.y;
+    debugLogThrottled('move','pos',{ x: p.x, y: p.y, controls: snapshotControls(), flags: controlsToString(controls as any) }, 100);
+  } else {
+    // Ensure clamp even when game over
+    p.x = Math.max(28, Math.min(w-28, p.x));
+    p.y = Math.max(28, Math.min(h-28, p.y));
   }
-  p.x = Math.max(28, Math.min(w-28, p.x));
 
   if (p.invuln > 0) p.invuln -= dt;
 
@@ -395,13 +463,18 @@ function update(dt: number, nowMs: number){
 
 function draw(nowMs: number){
   const w = state.w(), h = state.h();
-  // Toggle external pause link visibility and position above pads
+  // Expose a lightweight testing hook for E2E to read player y% without internal coupling
+  if ((import.meta as any).env?.DEV) {
+    try {
+      (canvas as any).dataset.playerYpct = (state.player.y / Math.max(1,h)).toFixed(3);
+    } catch {}
+  }
+  // Toggle external pause link visibility and position near bottom safe area
   if (pauseLinkEl) {
     pauseLinkEl.style.display = (state.paused && !state.gameOver) ? 'block' : 'none';
     if (state.paused && !state.gameOver) {
       const sa = getSafeAreaInsets();
-      const pads = computePads(w, h, sa.bottom);
-      const bottomPx = computeHintBottomOffset(pads, sa.bottom);
+      const bottomPx = Math.ceil(6 + sa.bottom);
       (pauseLinkEl as HTMLElement).style.bottom = `${bottomPx}px`;
     }
   }
@@ -712,22 +785,7 @@ function draw(nowMs: number){
     ctx.restore();
   }
 
-  // on-screen pads
-  const sa = getSafeAreaInsets();
-  // Nudge right pad left if centerline is near hint text area to avoid overlap
-  const pads = computePads(w, h, sa.bottom);
-  if (pads.rightCx + pads.padR > (w - 120)) {
-    pads.rightCx = Math.max(pads.rightCx - 40, pads.padR + 12);
-  }
-  ctx.globalAlpha = 0.25;
-  drawCircle(pads.leftCx,pads.leftCy,pads.padR, controls.left);
-  drawTriangle(pads.leftCx,pads.leftCy,pads.padR*0.5, 'left');
-  drawCircle(pads.rightCx,pads.rightCy,pads.padR, controls.right);
-  drawTriangle(pads.rightCx,pads.rightCy,pads.padR*0.5, 'right');
-  drawCircle(pads.fireCx, pads.fireCy, pads.fireR, controls.fire, '#ff3b30');
-  ctx.globalAlpha = 0.7;
-  ctx.beginPath(); ctx.arc(pads.fireCx, pads.fireCy, pads.fireR*0.45, 0, Math.PI*2); ctx.fillStyle='#ffffff'; ctx.fill();
-  ctx.globalAlpha = 1;
+  // on-screen pads removed; mobile uses tap-and-drag controls
 
   // version string at bottom center
   ctx.save();
@@ -745,37 +803,13 @@ function draw(nowMs: number){
   ctx.textAlign = 'start';
   ctx.restore();
 
-  function drawCircle(x:number,y:number,r:number,active:boolean,color='#000'){
-    ctx.save();
-    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
-    ctx.fillStyle = (color === '#000') ? 'rgba(0,0,0,0.35)' : color;
-    ctx.fill();
-    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.stroke();
-    if(active){ ctx.beginPath(); ctx.arc(x,y,r*0.7,0,Math.PI*2); ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.stroke(); }
-    ctx.restore();
-  }
-  function drawTriangle(x:number,y:number,s:number,dir:'left'|'right'){
-    ctx.save();
-    ctx.fillStyle='white';
-    ctx.beginPath();
-    if(dir==='left'){
-      ctx.moveTo(x - s*0.6, y);
-      ctx.lineTo(x + s*0.4, y - s);
-      ctx.lineTo(x + s*0.4, y + s);
-    } else {
-      ctx.moveTo(x + s*0.6, y);
-      ctx.lineTo(x - s*0.4, y - s);
-      ctx.lineTo(x - s*0.4, y + s);
-    }
-    ctx.closePath();
-    ctx.globalAlpha = .9; ctx.fill(); ctx.restore();
-  }
 }
 
 function addPointerListeners(el: HTMLElement){
   let mouseHeld = false;
   let dragging = false;
   let dragOffsetX = 0;
+  let dragOffsetY = 0;
   const clearControls = () => { controls.left = controls.right = controls.fire = false; };
   function onDown(e: any){
     if (state.gameOver) { hardReset(state); return; }
@@ -789,6 +823,7 @@ function addPointerListeners(el: HTMLElement){
     if (shouldStartDrag(py, state.player.y)) {
       dragging = true;
       dragOffsetX = state.player.x - px;
+      dragOffsetY = state.player.y - py;
     } else {
       // fallback to virtual pads classification
       inputAt(px, py, true);
@@ -801,6 +836,7 @@ function addPointerListeners(el: HTMLElement){
       const t = list[0];
       if (dragging) {
         state.player.x = t.clientX + dragOffsetX;
+        state.player.y = t.clientY + dragOffsetY;
       } else if (mouseHeld) {
         inputAt(t.clientX, t.clientY, true);
       }
@@ -827,17 +863,8 @@ function addPointerListeners(el: HTMLElement){
 }
 
 function inputAt(clientX: number, clientY: number, isDown: boolean){
-  const x = clientX; const y = clientY;
-  const w = state.w(); const h = state.h();
-  const sa = getSafeAreaInsets();
-  const pads = computePads(w, h, sa.bottom);
-  if (hitCircle(x,y,pads.leftCx,pads.leftCy,pads.padR)) { controls.left = isDown; return; }
-  if (hitCircle(x,y,pads.rightCx,pads.rightCy,pads.padR)) { controls.right = isDown; return; }
-  if (hitCircle(x,y,pads.fireCx,pads.fireCy,pads.fireR)) { controls.fire = isDown; return; }
-}
-
-function hitCircle(px: number, py: number, cx: number, cy: number, r: number){
-  const dx = px - cx, dy = py - cy; return (dx*dx + dy*dy) <= r*r;
+  // With pads removed, maintain behavior: any tap while held keeps firing
+  controls.fire = isDown;
 }
 
 function getSafeAreaInsets(){

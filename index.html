@@ -11,15 +11,15 @@
     <title>Undersea Blaster</title>
     <style>
       html, body { height: 100%; margin: 0; background: #062b4f; }
-      /* Use dynamic viewport units for iOS Safari */
-      #game { display:block; width:100dvw; height:100dvh; height:100svh; height:100vh; touch-action:none; outline: none; }
+      /* Use dynamic viewport units; last declaration wins for best support */
+      #game { display:block; width:100vw; width:100svw; width:100dvw; height:100vh; height:100svh; height:100dvh; touch-action:none; outline: none; }
       .hint { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(6px + env(safe-area-inset-bottom)); color: #9ecbff; font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; opacity:.85; pointer-events: none; }
       #pause-link { position: fixed; left: 50%; transform: translateX(-50%); bottom: 28%; color: #bfe0ff; font: 16px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5)); display: none; z-index: 10; }
     </style>
   </head>
   <body>
     <canvas id="game" tabindex="0" role="application" aria-label="Undersea Blaster game canvas"></canvas>
-    <div class="hint">Click/tap the game to focus. Use ◀/▶ (or A/D) to move, Space/Enter to shoot. Mobile: on-screen pads. — <a href="https://www.kerryhatcher.com" target="_blank" rel="noopener noreferrer" style="color:#bfe0ff">kerryhatcher.com</a></div>
+    <div class="hint">Click/tap the game to focus. Use ◀/▶ (or A/D) to move, Space/Enter to shoot. Mobile: tap and drag. — <a href="https://www.kerryhatcher.com" target="_blank" rel="noopener noreferrer" style="color:#bfe0ff">kerryhatcher.com</a></div>
     <a id="pause-link" href="https://www.kerryhatcher.com" target="_blank" rel="noopener noreferrer" aria-label="Kerry Hatcher website">by Kerry Hatcher — kerryhatcher.com</a>
     <script type="module" src="/src/main.ts"></script>
   </body>

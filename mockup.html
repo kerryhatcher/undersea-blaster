@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Undersea Blaster – Mockup</title>
   <style>
     html, body { height: 100%; margin: 0; background: #062b4f; }
-    #game { display:block; width:100vw; height:100vh; touch-action:none; outline: none; }
+    /* Use dynamic viewport units; last declaration wins for best support */
+    #game { display:block; width:100vw; width:100svw; width:100dvw; height:100vh; height:100svh; height:100dvh; touch-action:none; outline: none; }
     .hint { position: fixed; left: 50%; transform: translateX(-50%); bottom: 6px; color: #9ecbff; font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; opacity:.85; }
   </style>
 </head>
@@ -26,12 +27,14 @@
     canvas.addEventListener('mouseenter', focusGame);
 
     function resize() {
+      const rect = canvas.getBoundingClientRect();
       const dpr = Math.max(1, window.devicePixelRatio || 1);
-      canvas.width  = Math.floor(innerWidth  * dpr);
-      canvas.height = Math.floor(innerHeight * dpr);
+      canvas.width  = Math.floor(rect.width  * dpr);
+      canvas.height = Math.floor(rect.height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // work in CSS pixels
     }
     addEventListener('resize', resize);
+    window.visualViewport && window.visualViewport.addEventListener('resize', resize);
     resize();
 
     // ============================
